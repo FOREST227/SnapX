@@ -1,3 +1,5 @@
+import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 struct SettingsView: View {
@@ -129,7 +131,7 @@ struct SettingsView: View {
             Label("截图快捷键", systemImage: "keyboard")
                 .font(.system(size: 15, weight: .semibold))
 
-            Text("支持字母和数字键；至少选择一个修饰键。修改后立即生效。")
+            Text("点击快捷键输入框后按下想要的组合键即可设定，例如 ⌘⇧S。支持字母、数字、F1–F20、方向键等；至少需要一个修饰键。修改后立即生效。")
                 .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,21 +140,24 @@ struct SettingsView: View {
                 action: .framed,
                 currentConfiguration: appState.framedHotKeyConfiguration,
                 onSave: { try appState.updateHotKey(for: .framed, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .framed) }
+                onReset: { try appState.resetHotKey(for: .framed) },
+                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
             )
 
             HotKeyEditorCard(
                 action: .display,
                 currentConfiguration: appState.displayHotKeyConfiguration,
                 onSave: { try appState.updateHotKey(for: .display, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .display) }
+                onReset: { try appState.resetHotKey(for: .display) },
+                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
             )
 
             HotKeyEditorCard(
                 action: .history,
                 currentConfiguration: appState.historyHotKeyConfiguration,
                 onSave: { try appState.updateHotKey(for: .history, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .history) }
+                onReset: { try appState.resetHotKey(for: .history) },
+                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
             )
         }
         .padding(14)
@@ -161,34 +166,85 @@ struct SettingsView: View {
     }
 }
 
+/// 监听键盘输入，录制用户自定义的快捷键组合。同一时间只允许一个录制器工作。
+@MainActor
+private final class ShortcutRecorder: ObservableObject {
+    private static weak var activeRecorder: ShortcutRecorder?
+
+    @Published private(set) var isRecording = false
+
+    var onCapture: ((UInt32, HotKeyModifiers) -> Void)?
+    var onCancel: (() -> Void)?
+
+    private var monitor: Any?
+
+    func start() {
+        guard !isRecording else { return }
+        if let active = Self.activeRecorder, active !== self {
+            active.stop()
+        }
+        Self.activeRecorder = self
+        isRecording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // 本地监视器在主线程分发事件；吞掉所有按键避免触发其它 UI。
+            MainActor.assumeIsolated {
+                self?.handle(event)
+            }
+            return nil
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+        isRecording = false
+        if Self.activeRecorder === self {
+            Self.activeRecorder = nil
+        }
+    }
+
+    private func handle(_ event: NSEvent) {
+        guard !event.isARepeat else { return }
+
+        if Int(event.keyCode) == kVK_Escape {
+            stop()
+            onCancel?()
+            return
+        }
+
+        let modifiers = HotKeyModifiers(eventFlags: event.modifierFlags)
+        onCapture?(UInt32(event.keyCode), modifiers)
+    }
+
+    deinit {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+}
+
+private extension HotKeyModifiers {
+    init(eventFlags: NSEvent.ModifierFlags) {
+        var value: HotKeyModifiers = []
+        if eventFlags.contains(.control) { value.insert(.control) }
+        if eventFlags.contains(.option) { value.insert(.option) }
+        if eventFlags.contains(.shift) { value.insert(.shift) }
+        if eventFlags.contains(.command) { value.insert(.command) }
+        self = value
+    }
+}
+
 private struct HotKeyEditorCard: View {
     let action: CaptureShortcutAction
     let currentConfiguration: HotKeyConfiguration
     let onSave: (HotKeyConfiguration) throws -> Void
     let onReset: () throws -> Void
+    let onRecordingChanged: (Bool) -> Void
 
-    @State private var draftKeyCode: UInt32
-    @State private var draftModifiersRawValue: UInt32
+    @StateObject private var recorder = ShortcutRecorder()
     @State private var errorMessage = ""
-
-    init(
-        action: CaptureShortcutAction,
-        currentConfiguration: HotKeyConfiguration,
-        onSave: @escaping (HotKeyConfiguration) throws -> Void,
-        onReset: @escaping () throws -> Void
-    ) {
-        self.action = action
-        self.currentConfiguration = currentConfiguration
-        self.onSave = onSave
-        self.onReset = onReset
-        _draftKeyCode = State(initialValue: currentConfiguration.keyCode)
-        _draftModifiersRawValue = State(initialValue: currentConfiguration.modifiersRawValue)
-    }
-
-    private let modifierColumns = [
-        GridItem(.flexible(minimum: 150), spacing: 10),
-        GridItem(.flexible(minimum: 150), spacing: 10),
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -196,57 +252,46 @@ private struct HotKeyEditorCard: View {
                 Text(action.title)
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text(currentConfiguration.displayString)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
+                if !recorder.isRecording {
+                    Text(currentConfiguration.displayString)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(alignment: .center, spacing: 14) {
-                Text("主按键")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
-
-                Picker("主按键", selection: $draftKeyCode) {
-                    ForEach(HotKeyKeyOption.supportedKeys) { option in
-                        Text(option.label).tag(option.keyCode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 120)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("修饰键")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: modifierColumns, alignment: .leading, spacing: 8) {
-                    ForEach(ModifierToggle.allCases) { item in
-                        Toggle(isOn: modifierBinding(for: item)) {
-                            Label(item.title, systemImage: item.systemImage)
-                                .labelStyle(.titleAndIcon)
-                                .lineLimit(1)
-                        }
-                        .toggleStyle(.checkbox)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-
             HStack(spacing: 12) {
+                Button {
+                    toggleRecording()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: recorder.isRecording ? "record.circle.fill" : "keyboard")
+                        Text(recorder.isRecording ? "请按下快捷键…" : currentConfiguration.displayString)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    }
+                    .frame(minWidth: 190, minHeight: 30)
+                }
+                .buttonStyle(.bordered)
+                .tint(recorder.isRecording ? .red : .accentColor)
+
+                if recorder.isRecording {
+                    Button("取消") {
+                        cancelRecording()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 Button("恢复默认") {
                     restoreDefaults()
                 }
                 .buttonStyle(.bordered)
-
-                Button("应用快捷键") {
-                    applyChanges()
-                }
-                .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("点击输入框后按下想要的组合键即可保存，Esc 取消。录制期间当前快捷键暂停生效。")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !errorMessage.isEmpty {
                 Text(errorMessage)
@@ -263,63 +308,64 @@ private struct HotKeyEditorCard: View {
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .onChange(of: currentConfiguration) { _ in
-            draftKeyCode = currentConfiguration.keyCode
-            draftModifiersRawValue = currentConfiguration.modifiersRawValue
-            errorMessage = ""
+            if !recorder.isRecording {
+                errorMessage = ""
+            }
+        }
+        .onDisappear {
+            if recorder.isRecording {
+                recorder.stop()
+                onRecordingChanged(false)
+            }
         }
     }
 
-    private var draftModifiers: HotKeyModifiers {
-        HotKeyModifiers(rawValue: draftModifiersRawValue)
-    }
+    private func toggleRecording() {
+        if recorder.isRecording {
+            cancelRecording()
+            return
+        }
 
-    private func modifierBinding(for item: ModifierToggle) -> Binding<Bool> {
-        Binding(
-            get: {
-                draftModifiers.contains(item.modifier)
-            },
-            set: { isEnabled in
-                var next = draftModifiers
-                if isEnabled {
-                    next.insert(item.modifier)
-                } else {
-                    next.remove(item.modifier)
-                }
-                draftModifiersRawValue = next.rawValue
-            }
-        )
-    }
-
-    private func applyChanges() {
-        do {
-            try onSave(HotKeyConfiguration(keyCode: draftKeyCode, modifiers: draftModifiers))
+        errorMessage = ""
+        recorder.onCapture = { keyCode, modifiers in
+            capture(keyCode: keyCode, modifiers: modifiers)
+        }
+        recorder.onCancel = {
             errorMessage = ""
+            onRecordingChanged(false)
+        }
+        recorder.start()
+        onRecordingChanged(true)
+    }
+
+    private func cancelRecording() {
+        recorder.stop()
+        errorMessage = ""
+        onRecordingChanged(false)
+    }
+
+    private func capture(keyCode: UInt32, modifiers: HotKeyModifiers) {
+        do {
+            try onSave(HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers))
+            errorMessage = ""
+            recorder.stop()
+            onRecordingChanged(false)
         } catch {
+            // 保存失败时保持录制状态，方便直接重按组合键。
             errorMessage = error.localizedDescription
         }
     }
 
     private func restoreDefaults() {
+        if recorder.isRecording {
+            recorder.stop()
+            onRecordingChanged(false)
+        }
         do {
             try onReset()
             errorMessage = ""
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-}
-
-private extension ModifierToggle {
-    var systemImage: String {
-        switch self {
-        case .control:
-            "control"
-        case .option:
-            "option"
-        case .shift:
-            "shift"
-        case .command:
-            "command"
         }
     }
 }

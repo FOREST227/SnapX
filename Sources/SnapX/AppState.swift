@@ -304,7 +304,7 @@ final class AppState: ObservableObject {
             throw HotKeyConfigurationError.missingModifiers
         }
 
-        guard HotKeyKeyOption.isSupported(keyCode: configuration.keyCode) else {
+        guard HotKeyKey.isSupported(keyCode: configuration.keyCode) else {
             throw HotKeyConfigurationError.unsupportedKey
         }
 
@@ -320,6 +320,16 @@ final class AppState: ObservableObject {
 
     func resetHotKey(for action: CaptureShortcutAction) throws {
         try updateHotKey(for: action, configuration: action.defaultConfiguration)
+    }
+
+    /// 录制快捷键期间暂停全局快捷键，避免录制的组合键触发截图动作。
+    func setHotKeyRecordingActive(_ active: Bool) {
+        if active {
+            hotKeyMonitors.forEach { $0.unregister() }
+            hotKeyMonitors.removeAll()
+        } else {
+            registerHotKeys()
+        }
     }
 
     func hotKeyConfiguration(for action: CaptureShortcutAction) -> HotKeyConfiguration {
@@ -504,7 +514,7 @@ final class AppState: ObservableObject {
         let decoder = JSONDecoder()
         guard let data = UserDefaults.standard.data(forKey: action.userDefaultsKey),
               let configuration = try? decoder.decode(HotKeyConfiguration.self, from: data),
-              HotKeyKeyOption.isSupported(keyCode: configuration.keyCode),
+              HotKeyKey.isSupported(keyCode: configuration.keyCode),
               !configuration.modifiers.isEmpty else {
             return action.defaultConfiguration
         }

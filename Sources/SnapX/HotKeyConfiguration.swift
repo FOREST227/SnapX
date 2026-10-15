@@ -71,7 +71,7 @@ struct HotKeyConfiguration: Codable, Equatable {
     }
 
     var displayString: String {
-        "\(modifiers.symbolString)\(HotKeyKeyOption.label(for: keyCode))"
+        "\(modifiers.symbolString)\(HotKeyKey.label(for: keyCode))"
     }
 }
 
@@ -83,115 +83,115 @@ enum HotKeyConfigurationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingModifiers:
-            "快捷键至少需要选择一个修饰键。"
+            "快捷键至少需要包含一个修饰键（⌘ / ⌥ / ⌃ / ⇧）。"
         case .unsupportedKey:
-            "当前按键暂不支持，请改用字母或数字键。"
+            "这个按键无法用作快捷键，请换一个按键。"
         case let .duplicateShortcut(actionTitle):
             "这个快捷键已经被“\(actionTitle)”使用了。"
         }
     }
 }
 
-struct HotKeyKeyOption: Identifiable, Hashable {
-    let keyCode: UInt32
-    let label: String
-
-    var id: UInt32 { keyCode }
-
-    static let supportedKeys: [HotKeyKeyOption] = [
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_A), label: "A"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_B), label: "B"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_C), label: "C"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_D), label: "D"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_E), label: "E"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_F), label: "F"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_G), label: "G"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_H), label: "H"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_I), label: "I"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_J), label: "J"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_K), label: "K"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_L), label: "L"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_M), label: "M"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_N), label: "N"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_O), label: "O"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_P), label: "P"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_Q), label: "Q"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_R), label: "R"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_S), label: "S"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_T), label: "T"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_U), label: "U"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_V), label: "V"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_W), label: "W"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_X), label: "X"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_Y), label: "Y"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_Z), label: "Z"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_0), label: "0"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_1), label: "1"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_2), label: "2"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_3), label: "3"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_4), label: "4"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_5), label: "5"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_6), label: "6"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_7), label: "7"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_8), label: "8"),
-        HotKeyKeyOption(keyCode: UInt32(kVK_ANSI_9), label: "9"),
-    ]
-
+/// 可作为快捷键主按键的虚拟按键标签（不含纯修饰键和媒体键）。
+enum HotKeyKey {
     static func label(for keyCode: UInt32) -> String {
-        supportedKeys.first(where: { $0.keyCode == keyCode })?.label ?? "?"
+        labels[keyCode] ?? "?"
     }
 
     static func isSupported(keyCode: UInt32) -> Bool {
-        supportedKeys.contains(where: { $0.keyCode == keyCode })
-    }
-}
-
-enum ModifierToggle: CaseIterable, Identifiable {
-    case control
-    case option
-    case shift
-    case command
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .control:
-            "Control"
-        case .option:
-            "Option"
-        case .shift:
-            "Shift"
-        case .command:
-            "Command"
-        }
+        labels[keyCode] != nil
     }
 
-    var symbol: String {
-        switch self {
-        case .control:
-            "⌃"
-        case .option:
-            "⌥"
-        case .shift:
-            "⇧"
-        case .command:
-            "⌘"
-        }
-    }
-
-    var modifier: HotKeyModifiers {
-        switch self {
-        case .control:
-            .control
-        case .option:
-            .option
-        case .shift:
-            .shift
-        case .command:
-            .command
-        }
-    }
+    private static let labels: [UInt32: String] = [
+        UInt32(kVK_ANSI_A): "A",
+        UInt32(kVK_ANSI_B): "B",
+        UInt32(kVK_ANSI_C): "C",
+        UInt32(kVK_ANSI_D): "D",
+        UInt32(kVK_ANSI_E): "E",
+        UInt32(kVK_ANSI_F): "F",
+        UInt32(kVK_ANSI_G): "G",
+        UInt32(kVK_ANSI_H): "H",
+        UInt32(kVK_ANSI_I): "I",
+        UInt32(kVK_ANSI_J): "J",
+        UInt32(kVK_ANSI_K): "K",
+        UInt32(kVK_ANSI_L): "L",
+        UInt32(kVK_ANSI_M): "M",
+        UInt32(kVK_ANSI_N): "N",
+        UInt32(kVK_ANSI_O): "O",
+        UInt32(kVK_ANSI_P): "P",
+        UInt32(kVK_ANSI_Q): "Q",
+        UInt32(kVK_ANSI_R): "R",
+        UInt32(kVK_ANSI_S): "S",
+        UInt32(kVK_ANSI_T): "T",
+        UInt32(kVK_ANSI_U): "U",
+        UInt32(kVK_ANSI_V): "V",
+        UInt32(kVK_ANSI_W): "W",
+        UInt32(kVK_ANSI_X): "X",
+        UInt32(kVK_ANSI_Y): "Y",
+        UInt32(kVK_ANSI_Z): "Z",
+        UInt32(kVK_ANSI_0): "0",
+        UInt32(kVK_ANSI_1): "1",
+        UInt32(kVK_ANSI_2): "2",
+        UInt32(kVK_ANSI_3): "3",
+        UInt32(kVK_ANSI_4): "4",
+        UInt32(kVK_ANSI_5): "5",
+        UInt32(kVK_ANSI_6): "6",
+        UInt32(kVK_ANSI_7): "7",
+        UInt32(kVK_ANSI_8): "8",
+        UInt32(kVK_ANSI_9): "9",
+        UInt32(kVK_ANSI_Minus): "-",
+        UInt32(kVK_ANSI_Equal): "=",
+        UInt32(kVK_ANSI_LeftBracket): "[",
+        UInt32(kVK_ANSI_RightBracket): "]",
+        UInt32(kVK_ANSI_Quote): "'",
+        UInt32(kVK_ANSI_Semicolon): ";",
+        UInt32(kVK_ANSI_Backslash): "\\",
+        UInt32(kVK_ANSI_Comma): ",",
+        UInt32(kVK_ANSI_Period): ".",
+        UInt32(kVK_ANSI_Slash): "/",
+        UInt32(kVK_ANSI_Grave): "`",
+        UInt32(kVK_Return): "↩",
+        UInt32(kVK_Tab): "⇥",
+        UInt32(kVK_Space): "Space",
+        UInt32(kVK_Delete): "⌫",
+        UInt32(kVK_ForwardDelete): "⌦",
+        UInt32(kVK_Escape): "⎋",
+        UInt32(kVK_Help): "Help",
+        UInt32(kVK_Home): "↖",
+        UInt32(kVK_End): "↘",
+        UInt32(kVK_PageUp): "⇞",
+        UInt32(kVK_PageDown): "⇟",
+        UInt32(kVK_LeftArrow): "←",
+        UInt32(kVK_RightArrow): "→",
+        UInt32(kVK_DownArrow): "↓",
+        UInt32(kVK_UpArrow): "↑",
+        UInt32(kVK_F1): "F1",
+        UInt32(kVK_F2): "F2",
+        UInt32(kVK_F3): "F3",
+        UInt32(kVK_F4): "F4",
+        UInt32(kVK_F5): "F5",
+        UInt32(kVK_F6): "F6",
+        UInt32(kVK_F7): "F7",
+        UInt32(kVK_F8): "F8",
+        UInt32(kVK_F9): "F9",
+        UInt32(kVK_F10): "F10",
+        UInt32(kVK_F11): "F11",
+        UInt32(kVK_F12): "F12",
+        UInt32(kVK_F13): "F13",
+        UInt32(kVK_F14): "F14",
+        UInt32(kVK_F15): "F15",
+        UInt32(kVK_F16): "F16",
+        UInt32(kVK_F17): "F17",
+        UInt32(kVK_F18): "F18",
+        UInt32(kVK_F19): "F19",
+        UInt32(kVK_F20): "F20",
+        UInt32(kVK_ISO_Section): "§",
+        UInt32(kVK_JIS_Yen): "¥",
+        UInt32(kVK_JIS_Underscore): "_",
+        UInt32(kVK_JIS_KeypadComma): ",",
+        UInt32(kVK_JIS_Eisu): "英数",
+        UInt32(kVK_JIS_Kana): "かな",
+    ]
 }
 
 extension HotKeyModifiers {
