@@ -178,6 +178,8 @@ private final class ShortcutRecorder: ObservableObject {
 
     private var monitor: Any?
 
+    nonisolated init() {}
+
     func start() {
         guard !isRecording else { return }
         if let active = Self.activeRecorder, active !== self {
@@ -186,9 +188,13 @@ private final class ShortcutRecorder: ObservableObject {
         Self.activeRecorder = self
         isRecording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else {
+                // 录制器已释放时放行事件，避免遗留监视器吞掉按键。
+                return event
+            }
             // 本地监视器在主线程分发事件；吞掉所有按键避免触发其它 UI。
             MainActor.assumeIsolated {
-                self?.handle(event)
+                self.handle(event)
             }
             return nil
         }
@@ -218,11 +224,9 @@ private final class ShortcutRecorder: ObservableObject {
         onCapture?(UInt32(event.keyCode), modifiers)
     }
 
-    deinit {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-        }
-    }
+    // 注：不在 deinit 中调用 NSEvent.removeMonitor（新 SDK 下该 API 为主执行器隔离）。
+    // 所有正常出口（取消、保存、恢复默认、窗口关闭）都会显式调用 stop()；
+    // 若实例异常释放，监视器回调中的 weak self 会把按键事件放行，不再拦截。
 }
 
 private extension HotKeyModifiers {

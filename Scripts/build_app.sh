@@ -55,23 +55,23 @@ mkdir -p "$OUTPUT_DIR"
 case "$ARCH" in
   arm64)
     echo "Building for arm64..."
-    swift build -c release --package-path "$PROJECT_ROOT" --arch arm64 >/dev/null
+    swift build -c release --package-path "$PROJECT_ROOT" --arch arm64
     BIN="$(swift build -c release --show-bin-path --package-path "$PROJECT_ROOT" --arch arm64)/$APP_NAME"
     build_app_bundle "arm64" "$BIN"
     ;;
 
   x86_64)
     echo "Building for x86_64..."
-    swift build -c release --package-path "$PROJECT_ROOT" --arch x86_64 >/dev/null
+    swift build -c release --package-path "$PROJECT_ROOT" --arch x86_64
     BIN="$(swift build -c release --show-bin-path --package-path "$PROJECT_ROOT" --arch x86_64)/$APP_NAME"
     build_app_bundle "x86_64" "$BIN"
     ;;
 
   universal)
     echo "Building for arm64..."
-    swift build -c release --package-path "$PROJECT_ROOT" --arch arm64 >/dev/null
+    swift build -c release --package-path "$PROJECT_ROOT" --arch arm64
     echo "Building for x86_64..."
-    swift build -c release --package-path "$PROJECT_ROOT" --arch x86_64 >/dev/null
+    swift build -c release --package-path "$PROJECT_ROOT" --arch x86_64
 
     ARM64_BIN="$(swift build -c release --show-bin-path --package-path "$PROJECT_ROOT" --arch arm64)/$APP_NAME"
     X86_64_BIN="$(swift build -c release --show-bin-path --package-path "$PROJECT_ROOT" --arch x86_64)/$APP_NAME"

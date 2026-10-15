@@ -1195,6 +1195,7 @@ private struct InlineTextEditor: NSViewRepresentable {
         return NSFont(descriptor: descriptor, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: InlineTextEditor
         weak var textView: NSTextView?
