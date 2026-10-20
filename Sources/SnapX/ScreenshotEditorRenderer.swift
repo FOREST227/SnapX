@@ -200,7 +200,7 @@ enum ScreenshotEditorRenderer {
                     fontTraits.insert(.italic)
                 }
 
-                let baseFont = NSFont.systemFont(ofSize: text.fontSize, weight: text.isBold ? .bold : .semibold)
+                let baseFont = NSFont.systemFont(ofSize: text.fontSize, weight: text.isBold ? .bold : .regular)
                 var font = baseFont
 
                 if text.isItalic {
@@ -224,7 +224,7 @@ enum ScreenshotEditorRenderer {
                 let textRect = CGRect(
                     x: text.origin.x,
                     y: size.height - text.origin.y - textHeight,
-                    width: size.width - text.origin.x - 8,
+                    width: max(20, min(text.maxWidth ?? (size.width - text.origin.x - 8), size.width - text.origin.x - 8)),
                     height: textHeight
                 )
                 attributedText.draw(in: textRect)

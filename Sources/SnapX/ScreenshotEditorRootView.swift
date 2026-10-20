@@ -7,9 +7,80 @@ private extension Array {
     }
 }
 
+private struct HighlighterNibIcon: View {
+    var body: some View {
+        ZStack {
+            // Short collar above a broad, chisel-cut felt tip.
+            Path { path in
+                path.move(to: CGPoint(x: 5, y: 2))
+                path.addLine(to: CGPoint(x: 13, y: 2))
+                path.addLine(to: CGPoint(x: 13, y: 7))
+                path.addLine(to: CGPoint(x: 5, y: 7))
+                path.closeSubpath()
+            }
+            .stroke(.foreground, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+
+            Path { path in
+                path.move(to: CGPoint(x: 5.5, y: 8.5))
+                path.addLine(to: CGPoint(x: 12.5, y: 8.5))
+                path.addLine(to: CGPoint(x: 12.5, y: 12))
+                path.addLine(to: CGPoint(x: 5.5, y: 16))
+                path.closeSubpath()
+            }
+            .fill(.foreground)
+        }
+        .frame(width: 18, height: 18)
+        .rotationEffect(.degrees(40))
+        // Center the visible nib after rotation, rather than its empty canvas.
+        .offset(x: -0.5, y: 1.5)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct MosaicToolIcon: View {
+    private let shades: [Double] = [1, 0.42, 0.72, 0.58, 0.9, 0.34, 0.4, 0.76, 1]
+
+    var body: some View {
+        VStack(spacing: 1.4) {
+            ForEach(0..<3) { row in
+                HStack(spacing: 1.4) {
+                    ForEach(0..<3) { column in
+                        RoundedRectangle(cornerRadius: 0.8)
+                            .fill(.foreground)
+                            .opacity(shades[row * 3 + column])
+                            .frame(width: 4, height: 4)
+                    }
+                }
+            }
+        }
+        .frame(width: 15, height: 15)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ToolOptionsAnchorKey: PreferenceKey {
+    static var defaultValue: [ScreenshotEditorTool: Anchor<CGRect>] { [:] }
+    static func reduce(value: inout [ScreenshotEditorTool: Anchor<CGRect>],
+                       nextValue: () -> [ScreenshotEditorTool: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct ToolbarBubblePointer: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
 struct ScreenshotEditorRootView: View {
     private static let selectionFrameColor = Color(red: 0.2, green: 0.86, blue: 0.56)
 
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var viewModel: ScreenshotEditorViewModel
     let layout: ScreenshotEditorLayout
     let onClose: () -> Void
@@ -26,7 +97,8 @@ struct ScreenshotEditorRootView: View {
     @State private var draftMosaicPoints: [CGPoint] = []
     @State private var draftTextOrigin: CGPoint?
     @State private var draftText = ""
-    @FocusState private var isTextFieldFocused: Bool
+    // Native NSTextView focus is managed by InlineTextEditor, not SwiftUI .focused.
+    @State private var isTextFieldFocused = false
     @State private var showToolShortcuts: Bool = false
 
     @State private var currentImageRect: CGRect
@@ -36,6 +108,10 @@ struct ScreenshotEditorRootView: View {
     @State private var cropDragStart: CGPoint?
     @State private var cropOriginalRect: CGRect?
     @State private var draggingTextIndex: Int?
+    @State private var selectedTextIndex: Int?
+    @State private var editingTextIndex: Int?
+    @State private var movedText: TextAnnotation?
+    @State private var textEditorHeight: CGFloat = 40
 
     init(
         viewModel: ScreenshotEditorViewModel,
@@ -60,8 +136,6 @@ struct ScreenshotEditorRootView: View {
     private let arrowLineWidth: CGFloat = 4
     private let lineLineWidth: CGFloat = 4
     private let penLineWidth: CGFloat = 4
-    private let mosaicBrushSize: CGFloat = 28
-    private let highlightOpacity: CGFloat = 0.35
     private let cropHandleSize: CGFloat = 8
     private let cropHandleHitTolerance: CGFloat = 10
 
@@ -110,7 +184,7 @@ struct ScreenshotEditorRootView: View {
             toolbar
                 .fixedSize()
                 .frame(width: layout.toolbarRect.width, height: layout.toolbarRect.height)
-                .offset(x: layout.toolbarRect.minX, y: layout.toolbarRect.minY)
+                .offset(x: layout.toolbarRect.minX, y: toolbarTop)
 
             if let toastMessage = viewModel.toastMessage {
                 ToastView(message: toastMessage)
@@ -132,6 +206,16 @@ struct ScreenshotEditorRootView: View {
         }
         .frame(width: layout.screenSize.width, height: layout.screenSize.height)
         .background(Color.clear)
+        .overlayPreferenceValue(ToolOptionsAnchorKey.self) { anchors in
+            GeometryReader { geometry in
+                if let anchor = anchors[viewModel.activeTool] {
+                    let buttonRect = geometry[anchor]
+                    let left = min(max(buttonRect.minX, 12), max(12, geometry.size.width - 220 - 12))
+                    toolOptionsBubble(arrowOffset: min(max(buttonRect.midX - left - 6, 8), 200))
+                        .position(x: left + 110, y: buttonRect.maxY + 8 + 48)
+                }
+            }
+        }
         .onChange(of: viewModel.activeTool) { _ in
             commitTextDraftIfNeeded()
         }
@@ -172,6 +256,7 @@ struct ScreenshotEditorRootView: View {
                         MosaicMaskView(
                             annotations: viewModel.annotations,
                             draftPoints: draftMosaicPoints,
+                            draftBrushSize: CGFloat(viewModel.mosaicBrushSize),
                             imageSize: viewModel.image.size,
                             displaySize: currentImageRect.size
                         )
@@ -180,21 +265,33 @@ struct ScreenshotEditorRootView: View {
 
             annotationOverlay
 
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(dragGesture)
+                .simultaneousGesture(
+                    SpatialTapGesture(count: 2).exclusively(before: SpatialTapGesture())
+                        .onEnded { value in
+                            switch value {
+                            case .first(let tap): handleTextTap(at: tap.location, doubleClick: true)
+                            case .second(let tap): handleTextTap(at: tap.location, doubleClick: false)
+                            }
+                        }
+                )
+
+            if let index = selectedTextIndex, editingTextIndex == nil,
+               case let .text(text) = viewModel.annotations[safe: index] {
+                let rect = textBounds(movedText ?? text)
+                Rectangle().stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .frame(width: rect.width * currentDisplayScale, height: rect.height * currentDisplayScale)
+                    .position(x: rect.midX * currentDisplayScale, y: rect.midY * currentDisplayScale)
+                    .allowsHitTesting(false)
+            }
+
             if let draftTextOrigin {
                 draftTextEditor(at: draftTextOrigin)
             }
         }
-        .overlay(isCropDragging ? nil : selectionChrome)
-        .contentShape(Rectangle())
-        .gesture(dragGesture)
-        .simultaneousGesture(tapGesture)
-        .onTapGesture(count: 2) {
-            if viewModel.activeTool == .text && draftTextOrigin != nil {
-                commitTextDraftIfNeeded()
-            } else {
-                onDone()
-            }
-        }
+        .overlay((isCropDragging ? nil : selectionChrome)?.allowsHitTesting(false))
     }
 
     private var selectionChrome: some View {
@@ -208,7 +305,11 @@ struct ScreenshotEditorRootView: View {
 
     private var annotationOverlay: some View {
         Canvas { context, _ in
-            drawAnnotations(in: &context, annotations: viewModel.annotations)
+            drawAnnotations(in: &context, annotations: viewModel.annotations.enumerated().compactMap { index, annotation in
+                if index == editingTextIndex { return nil }
+                if index == draggingTextIndex, let movedText { return .text(movedText) }
+                return annotation
+            })
 
             if let draftRectangle {
                 let path = Path(roundedRect: draftRectangle, cornerRadius: 4)
@@ -223,7 +324,7 @@ struct ScreenshotEditorRootView: View {
                 let path = Path(roundedRect: draftHighlight, cornerRadius: 4)
                 context.fill(
                     path,
-                    with: .color(viewModel.selectedColor.swiftUIColor.opacity(highlightOpacity))
+                    with: .color(viewModel.selectedColor.swiftUIColor.opacity(viewModel.highlightOpacity))
                 )
             }
 
@@ -290,9 +391,14 @@ struct ScreenshotEditorRootView: View {
                     toolbarButton(
                         icon: tool.symbolName,
                         title: tool.title,
-                        isSelected: viewModel.activeTool == tool
+                        isSelected: viewModel.activeTool == tool,
+                        usesMosaicIcon: tool == .mosaic,
+                        usesHighlighterIcon: tool == .highlight
                     ) {
                         switchTool(to: tool)
+                    }
+                    .anchorPreference(key: ToolOptionsAnchorKey.self, value: .bounds) {
+                        tool == .highlight || tool == .mosaic || tool == .text ? [tool: $0] : [:]
                     }
                 }
             }
@@ -319,52 +425,6 @@ struct ScreenshotEditorRootView: View {
                 }
             }
 
-            if viewModel.activeTool == .text {
-                toolbarDivider
-
-                HStack(spacing: 6) {
-                    Button {
-                        viewModel.textFontSize = max(12, viewModel.textFontSize - 4)
-                    } label: {
-                        Image(systemName: "textformat.size.smaller")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.9))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .help("减小字号")
-
-                    Text("\(Int(viewModel.textFontSize))")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.8))
-                        .frame(width: 24)
-
-                    Button {
-                        viewModel.textFontSize = min(72, viewModel.textFontSize + 4)
-                    } label: {
-                        Image(systemName: "textformat.size.larger")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.9))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .help("增大字号")
-
-                    toolbarDivider
-
-                    textFormatToggle(icon: "bold", title: "加粗", isOn: viewModel.textIsBold) {
-                        viewModel.textIsBold.toggle()
-                    }
-
-                    textFormatToggle(icon: "italic", title: "斜体", isOn: viewModel.textIsItalic) {
-                        viewModel.textIsItalic.toggle()
-                    }
-
-                    textFormatToggle(icon: "underline", title: "下划线", isOn: viewModel.textIsUnderline) {
-                        viewModel.textIsUnderline.toggle()
-                    }
-                }
-            }
 
             toolbarDivider
 
@@ -374,8 +434,14 @@ struct ScreenshotEditorRootView: View {
                 }
             }
 
-            toolbarButton(icon: "text.viewfinder", title: "提取文字", isSelected: false, isDisabled: viewModel.isExtractingText) {
-                triggerEditingAction(action: onExtractText)
+            if viewModel.isExtractingText {
+                ProgressView().controlSize(.small).frame(width: 30, height: 30)
+                    .accessibilityLabel("正在提取文字")
+                    .help("正在提取文字…")
+            } else {
+                toolbarButton(icon: "text.viewfinder", title: "提取文字", isSelected: false) {
+                    triggerEditingAction(action: onExtractText)
+                }
             }
 
             toolbarButton(icon: "square.and.arrow.down", title: "保存", isSelected: false) {
@@ -410,9 +476,73 @@ struct ScreenshotEditorRootView: View {
         .shadow(color: .black.opacity(0.22), radius: 16, y: 10)
     }
 
+    private var highlightTransparencyPercent: Int {
+        Int(((1 - viewModel.highlightOpacity) * 100).rounded())
+    }
+
+    private var toolbarTop: CGFloat {
+        guard viewModel.activeTool == .highlight || viewModel.activeTool == .mosaic || viewModel.activeTool == .text else { return layout.toolbarRect.minY }
+        // Keep the property bubble below its tool even when the toolbar is near the screen edge.
+        let availableTop = layout.screenSize.height - layout.toolbarRect.height - 8 - 96 - 12
+        return min(layout.toolbarRect.minY, max(12, availableTop))
+    }
+
+    private func toolOptionsBubble(arrowOffset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ToolbarBubblePointer()
+                .fill(.regularMaterial)
+                .frame(width: 12, height: 6)
+                .padding(.leading, arrowOffset)
+            VStack(spacing: 8) {
+                if viewModel.activeTool == .text {
+                    textOptions
+                } else {
+                HStack(spacing: 6) {
+                    Image(systemName: viewModel.activeTool == .highlight ? "circle.lefthalf.filled" : "circle.dashed")
+                    Text(viewModel.activeTool == .highlight ? "透明度" : "笔刷大小")
+                    Spacer()
+                    Text(viewModel.activeTool == .highlight ? "\(highlightTransparencyPercent)%" : "\(Int(viewModel.mosaicBrushSize))")
+                        .monospacedDigit()
+                }
+                .font(.system(size: 12, weight: .medium))
+                if viewModel.activeTool == .highlight {
+                    Slider(value: Binding(
+                        get: { 1 - viewModel.highlightOpacity },
+                        set: { viewModel.highlightOpacity = 1 - ($0 * 100).rounded() / 100 }
+                    ), in: 0...1)
+                    .accessibilityLabel("高亮透明度")
+                    .accessibilityValue("\(highlightTransparencyPercent)%")
+                    .help("调整之后绘制的高亮透明度")
+                } else {
+                    Slider(value: Binding(
+                        get: { viewModel.mosaicBrushSize },
+                        set: { viewModel.mosaicBrushSize = $0.rounded() }
+                    ), in: 8...100)
+                    .accessibilityLabel("马赛克笔刷大小")
+                    .accessibilityValue("\(Int(viewModel.mosaicBrushSize))")
+                    .help("调整之后绘制的马赛克笔刷直径")
+                }
+                HStack {
+                    Text(viewModel.activeTool == .highlight ? "0% 不透明" : "8 · 细")
+                    Spacer()
+                    Text(viewModel.activeTool == .highlight ? "100% 全透明" : "100 · 粗")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(AppPanelStyle.secondaryText)
+                }
+            }
+            .padding(12)
+            .frame(width: 220)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.5))
+        }
+        .frame(width: 220, height: 96, alignment: .topLeading)
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+    }
+
     private var toolbarDivider: some View {
         Rectangle()
-            .fill(Color.white.opacity(0.18))
+            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
             .frame(width: 1, height: 24)
     }
 
@@ -422,11 +552,22 @@ struct ScreenshotEditorRootView: View {
         isSelected: Bool,
         isDisabled: Bool = false,
         accent: Bool = false,
+        usesMosaicIcon: Bool = false,
+        usesHighlighterIcon: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+            Group {
+                if usesHighlighterIcon {
+                    HighlighterNibIcon()
+                } else if usesMosaicIcon {
+                    MosaicToolIcon()
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+                .frame(width: 18, height: 18, alignment: .center)
                 .foregroundStyle(buttonForeground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
                 .frame(width: 30, height: 30)
                 .background(
@@ -437,17 +578,18 @@ struct ScreenshotEditorRootView: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .help(title)
+        .accessibilityLabel(title)
     }
 
     private func textFormatToggle(icon: String, title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: isOn ? .bold : .semibold))
-                .foregroundStyle(isOn ? Color.accentColor : Color.white.opacity(0.9))
+                .foregroundStyle(isOn ? Color.accentColor : Color.primary)
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isOn ? Color.white.opacity(0.9) : Color.clear)
+                        .fill(isOn ? Color.accentColor.opacity(0.15) : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -534,31 +676,25 @@ struct ScreenshotEditorRootView: View {
                     }
 
                 case .text:
-                    if draftTextOrigin == nil, draggingTextIndex == nil {
-                        let tapPoint = displayPointToImagePoint(start)
-                        let hitRadius: CGFloat = 20 / currentDisplayScale
-                        if let (index, _) = findTextAnnotation(near: tapPoint, radius: hitRadius) {
-                            draggingTextIndex = index
-                        }
+                    guard hypot(current.x - start.x, current.y - start.y) > 3 else { return }
+                    if draggingTextIndex == nil {
+                        draggingTextIndex = findTextAnnotation(near: displayPointToImagePoint(start), radius: 4 / currentDisplayScale)?.0
+                        selectedTextIndex = draggingTextIndex
                     }
-                    if let dragIndex = draggingTextIndex,
-                       case let .text(textAnnotation) = viewModel.annotations[safe: dragIndex] {
-                        let dx = displayPointToImagePoint(CGPoint(x: current.x - start.x, y: current.y - start.y))
-                        let newOrigin = CGPoint(x: textAnnotation.origin.x + dx.x, y: textAnnotation.origin.y + dx.y)
-                        viewModel.annotations[dragIndex] = .text(TextAnnotation(
-                            origin: newOrigin,
-                            text: textAnnotation.text,
-                            color: textAnnotation.color,
-                            fontSize: textAnnotation.fontSize,
-                            isBold: textAnnotation.isBold,
-                            isItalic: textAnnotation.isItalic,
-                            isUnderline: textAnnotation.isUnderline
-                        ))
+                    if let index = draggingTextIndex, case let .text(original) = viewModel.annotations[safe: index] {
+                        movedText = TextAnnotation(
+                            origin: CGPoint(x: max(0, min(viewModel.image.size.width - 20, original.origin.x + (current.x - start.x) / currentDisplayScale)),
+                                            y: max(0, min(viewModel.image.size.height - 20, original.origin.y + (current.y - start.y) / currentDisplayScale))),
+                            text: original.text, color: original.color, fontSize: original.fontSize,
+                            isBold: original.isBold, isItalic: original.isItalic, isUnderline: original.isUnderline,
+                            maxWidth: original.maxWidth)
                     }
                 }
             }
             .onEnded { value in
-                if draggingTextIndex != nil {
+                if let index = draggingTextIndex {
+                    if let movedText { viewModel.annotations[index] = .text(movedText) }
+                    movedText = nil
                     draggingTextIndex = nil
                     return
                 }
@@ -584,15 +720,7 @@ struct ScreenshotEditorRootView: View {
                 case .highlight:
                     defer { draftHighlight = nil }
                     guard let draftHighlight, draftHighlight.width >= 8, draftHighlight.height >= 8 else { return }
-                    viewModel.addAnnotation(
-                        .highlight(
-                            HighlightAnnotation(
-                                rect: displayRectToImageRect(draftHighlight),
-                                color: viewModel.selectedColor,
-                                opacity: highlightOpacity
-                            )
-                        )
-                    )
+                    viewModel.addHighlight(rect: displayRectToImageRect(draftHighlight))
 
                 case .arrow:
                     defer { draftArrow = nil }
@@ -639,14 +767,7 @@ struct ScreenshotEditorRootView: View {
                     defer { draftMosaicPoints = [] }
                     let points = draftMosaicPoints.isEmpty ? [start] : draftMosaicPoints
                     guard !points.isEmpty else { return }
-                    viewModel.addAnnotation(
-                        .mosaic(
-                            MosaicAnnotation(
-                                points: points.map(displayPointToImagePoint),
-                                brushSize: mosaicBrushSize
-                            )
-                        )
-                    )
+                    viewModel.addMosaic(points: points.map(displayPointToImagePoint))
 
                 case .text:
                     break
@@ -656,53 +777,49 @@ struct ScreenshotEditorRootView: View {
 
     // MARK: - Tap Gesture
 
-    private var tapGesture: some Gesture {
-        SpatialTapGesture()
-            .onEnded { value in
-                guard viewModel.activeTool == .text else { return }
+    private func handleTextTap(at point: CGPoint, doubleClick: Bool) {
+        guard viewModel.activeTool == .text else {
+            if doubleClick { triggerEditingAction(action: onDone) }
+            return
+        }
+        if draftTextOrigin != nil {
+            commitTextDraftIfNeeded()
+            return
+        }
+        if let (index, text) = findTextAnnotation(near: displayPointToImagePoint(point), radius: 4 / currentDisplayScale) {
+            selectedTextIndex = index
+            guard doubleClick else { return }
+            editingTextIndex = index
+            viewModel.selectedColor = text.color
+            viewModel.textFontSize = text.fontSize
+            viewModel.textIsBold = text.isBold
+            viewModel.textIsItalic = text.isItalic
+            viewModel.textIsUnderline = text.isUnderline
+            draftTextOrigin = imagePointToDisplayPoint(text.origin)
+            draftText = text.text
+        } else {
+            selectedTextIndex = nil
+            editingTextIndex = nil
+            draftTextOrigin = clampedTextOrigin(for: point)
+            draftText = ""
+        }
+        textEditorHeight = viewModel.textFontSize * currentDisplayScale + 8
+        viewModel.hasActiveTextDraft = true
+        isTextFieldFocused = true
+    }
 
-                commitTextDraftIfNeeded()
-
-                // Check if tapping on an existing text annotation to re-edit
-                let tapPoint = displayPointToImagePoint(value.location)
-                let hitRadius: CGFloat = 20 / currentDisplayScale
-                if let (index, textAnnotation) = findTextAnnotation(near: tapPoint, radius: hitRadius) {
-                    viewModel.annotations.remove(at: index)
-                    viewModel.selectedColor = textAnnotation.color
-                    viewModel.textFontSize = textAnnotation.fontSize
-                    viewModel.textIsBold = textAnnotation.isBold
-                    viewModel.textIsItalic = textAnnotation.isItalic
-                    viewModel.textIsUnderline = textAnnotation.isUnderline
-                    draftTextOrigin = imagePointToDisplayPoint(textAnnotation.origin)
-                    draftText = textAnnotation.text
-                    viewModel.hasActiveTextDraft = true
-                    DispatchQueue.main.async {
-                        isTextFieldFocused = true
-                    }
-                    return
-                }
-
-                let origin = clampedTextOrigin(for: value.location)
-                draftTextOrigin = origin
-                draftText = ""
-                viewModel.hasActiveTextDraft = true
-                DispatchQueue.main.async {
-                    isTextFieldFocused = true
-                }
-            }
+    private func textBounds(_ text: TextAnnotation) -> CGRect {
+        let width = max(20, min(text.maxWidth ?? (viewModel.image.size.width - text.origin.x - 8), viewModel.image.size.width - text.origin.x))
+        let bounds = (text.text as NSString).boundingRect(with: CGSize(width: width, height: 10000),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: NSFont.systemFont(ofSize: text.fontSize, weight: text.isBold ? .bold : .regular)])
+        return CGRect(origin: text.origin, size: CGSize(width: min(width, max(20, ceil(bounds.width))), height: max(text.fontSize * 1.2, ceil(bounds.height))))
     }
 
     private func findTextAnnotation(near point: CGPoint, radius: CGFloat) -> (Int, TextAnnotation)? {
         for (index, annotation) in viewModel.annotations.enumerated().reversed() {
-            guard case let .text(textAnnotation) = annotation else { continue }
-            let origin = textAnnotation.origin
-            // Simple bounding box hit test
-            let textWidth = CGFloat(textAnnotation.text.count) * textAnnotation.fontSize * 0.6
-            let textHeight = textAnnotation.fontSize * 1.4
-            let rect = CGRect(x: origin.x, y: origin.y, width: textWidth, height: textHeight)
-            let expandedRect = rect.insetBy(dx: -radius, dy: -radius)
-            if expandedRect.contains(point) {
-                return (index, textAnnotation)
+            if case let .text(text) = annotation, textBounds(text).insetBy(dx: -radius, dy: -radius).contains(point) {
+                return (index, text)
             }
         }
         return nil
@@ -781,7 +898,7 @@ struct ScreenshotEditorRootView: View {
 
             case let .text(text):
                 let fontSize = max(text.fontSize * currentDisplayScale, 14)
-                let weight: Font.Weight = text.isBold ? .bold : .semibold
+                let weight: Font.Weight = text.isBold ? .bold : .regular
 
                 var textView = Text(text.text)
                     .font(Font.system(size: fontSize, weight: weight))
@@ -796,7 +913,8 @@ struct ScreenshotEditorRootView: View {
 
                 var resolvedText = context.resolve(textView)
                 resolvedText.shading = .color(text.color.swiftUIColor)
-                context.draw(resolvedText, at: imagePointToDisplayPoint(text.origin), anchor: .topLeading)
+                let width = max(20, min(text.maxWidth ?? (viewModel.image.size.width - text.origin.x - 8), viewModel.image.size.width - text.origin.x)) * currentDisplayScale
+                context.draw(resolvedText, in: CGRect(origin: imagePointToDisplayPoint(text.origin), size: CGSize(width: width, height: max(20, currentImageRect.height - text.origin.y * currentDisplayScale))))
 
             case .mosaic:
                 break
@@ -831,40 +949,51 @@ struct ScreenshotEditorRootView: View {
 
     private func draftTextEditor(at origin: CGPoint) -> some View {
         let fontSize = max(viewModel.textFontSize * currentDisplayScale, 14)
-        let lineHeight = fontSize * 1.35
-        let lineCount = max(draftText.components(separatedBy: "\n").count, 1)
-        let editorHeight = CGFloat(lineCount) * lineHeight + 4
-        let maxEditorWidth = currentImageRect.width - origin.x - 12
-
+        let width = max(24, min(320, currentImageRect.width - origin.x - 8))
+        let height = max(24, min(textEditorHeight, currentImageRect.height - origin.y - 8))
         return InlineTextEditor(
-            text: $draftText,
-            fontSize: fontSize,
+            text: $draftText, fontSize: fontSize,
             fontWeight: viewModel.textIsBold ? .bold : .regular,
-            isItalic: viewModel.textIsItalic,
-            isUnderline: viewModel.textIsUnderline,
-            textColor: NSColor(viewModel.selectedColor.swiftUIColor),
-            focused: isTextFieldFocused,
-            onCommit: { commitTextDraftIfNeeded() },
-            onEscape: { discardDraftText() }
+            isItalic: viewModel.textIsItalic, isUnderline: viewModel.textIsUnderline,
+            textColor: NSColor(viewModel.selectedColor.swiftUIColor), focused: isTextFieldFocused,
+            onCommit: { commitTextDraftIfNeeded() }, onEscape: { discardDraftText() },
+            onHeightChange: { textEditorHeight = $0 }
         )
-        .frame(
-            minWidth: 40,
-            idealWidth: min(300, maxEditorWidth),
-            maxWidth: maxEditorWidth,
-            minHeight: lineHeight,
-            idealHeight: editorHeight,
-            maxHeight: min(editorHeight, currentImageRect.height - origin.y - 12)
-        )
-        .position(
-            x: min(origin.x + min(150, maxEditorWidth / 2), currentImageRect.width - min(150, maxEditorWidth / 2) - 12),
-            y: min(origin.y + editorHeight / 2, currentImageRect.height - editorHeight / 2 - 12)
-        )
+        .frame(width: width, height: height)
+        .overlay(alignment: .topLeading) {
+            if draftText.isEmpty {
+                Text("输入文字").font(.system(size: fontSize)).foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1).padding(-3).allowsHitTesting(false))
+        .position(x: origin.x + width / 2, y: origin.y + height / 2)
+    }
+
+    private var textOptions: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Text("字号").font(.system(size: 12))
+                Stepper("\(Int(viewModel.textFontSize))", value: $viewModel.textFontSize, in: 12...72, step: 2)
+                    .font(.system(size: 12)).monospacedDigit()
+            }
+            HStack(spacing: 8) {
+                textFormatToggle(icon: "bold", title: "加粗", isOn: viewModel.textIsBold) { viewModel.textIsBold.toggle() }
+                textFormatToggle(icon: "italic", title: "斜体", isOn: viewModel.textIsItalic) { viewModel.textIsItalic.toggle() }
+                textFormatToggle(icon: "underline", title: "下划线", isOn: viewModel.textIsUnderline) { viewModel.textIsUnderline.toggle() }
+                Spacer()
+                Button("完成") { commitTextDraftIfNeeded() }.disabled(draftTextOrigin == nil)
+                    .help("⌘Enter 完成，Enter 换行，Esc 取消")
+            }
+        }
+        .foregroundStyle(.primary)
     }
 
     // MARK: - Text Draft Management
 
     private func switchTool(to tool: ScreenshotEditorTool) {
         commitTextDraftIfNeeded()
+        selectedTextIndex = nil
         viewModel.activeTool = tool
     }
 
@@ -876,6 +1005,8 @@ struct ScreenshotEditorRootView: View {
     private func commitTextDraftIfNeeded() {
         guard let draftTextOrigin else { return }
         defer {
+            editingTextIndex = nil
+            selectedTextIndex = nil
             self.draftTextOrigin = nil
             draftText = ""
             isTextFieldFocused = false
@@ -883,24 +1014,28 @@ struct ScreenshotEditorRootView: View {
         }
 
         let trimmedText = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return }
+        guard !trimmedText.isEmpty else {
+            if let index = editingTextIndex, viewModel.annotations.indices.contains(index) {
+                viewModel.annotations.remove(at: index)
+            }
+            return
+        }
 
-        viewModel.addAnnotation(
-            .text(
-                TextAnnotation(
-                    origin: displayPointToImagePoint(draftTextOrigin),
-                    text: trimmedText,
-                    color: viewModel.selectedColor,
-                    fontSize: viewModel.textFontSize,
-                    isBold: viewModel.textIsBold,
-                    isItalic: viewModel.textIsItalic,
-                    isUnderline: viewModel.textIsUnderline
-                )
-            )
-        )
+        let annotation = ScreenshotEditorAnnotation.text(TextAnnotation(
+            origin: displayPointToImagePoint(draftTextOrigin), text: draftText,
+            color: viewModel.selectedColor, fontSize: viewModel.textFontSize,
+            isBold: viewModel.textIsBold, isItalic: viewModel.textIsItalic, isUnderline: viewModel.textIsUnderline,
+            maxWidth: max(24, min(320, currentImageRect.width - draftTextOrigin.x - 8)) / currentDisplayScale))
+        if let index = editingTextIndex, viewModel.annotations.indices.contains(index) {
+            viewModel.annotations[index] = annotation
+        } else {
+            viewModel.addAnnotation(annotation)
+        }
     }
 
     private func discardDraftText() {
+        editingTextIndex = nil
+        selectedTextIndex = nil
         draftTextOrigin = nil
         draftText = ""
         isTextFieldFocused = false
@@ -1056,7 +1191,7 @@ struct ScreenshotEditorRootView: View {
 
     private func clampedTextOrigin(for point: CGPoint) -> CGPoint {
         CGPoint(
-            x: min(max(point.x, 12), max(currentImageRect.width - 228, 12)),
+            x: min(max(point.x, 12), max(currentImageRect.width - 80, 12)),
             y: min(max(point.y, 12), max(currentImageRect.height - 40, 12))
         )
     }
@@ -1109,7 +1244,7 @@ struct ScreenshotEditorRootView: View {
 
 // MARK: - Inline Text Editor (WeChat-style)
 
-private struct InlineTextEditor: NSViewRepresentable {
+struct InlineTextEditor: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat
     var fontWeight: NSFont.Weight
@@ -1119,9 +1254,10 @@ private struct InlineTextEditor: NSViewRepresentable {
     var focused: Bool
     var onCommit: () -> Void
     var onEscape: () -> Void
+    var onHeightChange: (CGFloat) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = InlineTextScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
@@ -1137,7 +1273,10 @@ private struct InlineTextEditor: NSViewRepresentable {
         textView.isRichText = false
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 300, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
 
@@ -1145,19 +1284,25 @@ private struct InlineTextEditor: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.scrollView = scrollView
+        scrollView.onLayout = { [weak coordinator = context.coordinator] in coordinator?.updateTextSize() }
+        textView.onCommit = { [weak coordinator = context.coordinator] in coordinator?.parent.onCommit() }
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        context.coordinator.parent = self
 
+        // Never replace marked text or its attributes while an input method composes.
+        guard !textView.hasMarkedText() else { return }
+        let selection = textView.selectedRange()
         let font = makeFont()
         textView.font = font
         textView.textColor = textColor
 
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = fontSize * 0.35
+        paragraphStyle.lineBreakMode = .byWordWrapping
         textView.defaultParagraphStyle = paragraphStyle
 
         let attrs: [NSAttributedString.Key: Any] = [
@@ -1165,12 +1310,19 @@ private struct InlineTextEditor: NSViewRepresentable {
             .foregroundColor: textColor,
             .paragraphStyle: paragraphStyle,
         ]
-        textView.typingAttributes = attrs
+        var styledAttrs = attrs
+        if isUnderline { styledAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        textView.typingAttributes = styledAttrs
 
-        if textView.string != text {
-            textView.string = text
+        let replacedText = textView.string != text
+        if replacedText { textView.string = text }
+
+        textView.textStorage?.setAttributes(styledAttrs, range: NSRange(location: 0, length: textView.string.utf16.count))
+        if replacedText {
+            textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+        } else if selection.location <= textView.string.utf16.count {
+            textView.setSelectedRange(NSRange(location: selection.location, length: min(selection.length, textView.string.utf16.count - selection.location)))
         }
-
         if focused && textView.window?.firstResponder != textView {
             DispatchQueue.main.async {
                 textView.window?.makeFirstResponder(textView)
@@ -1178,7 +1330,7 @@ private struct InlineTextEditor: NSViewRepresentable {
         }
 
         context.coordinator.updateTextSize()
-        context.coordinator.applyUnderlineIfNeeded()
+
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1210,7 +1362,7 @@ private struct InlineTextEditor: NSViewRepresentable {
             guard let textView else { return }
             parent.text = textView.string
             updateTextSize()
-            applyUnderlineIfNeeded()
+
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -1218,7 +1370,7 @@ private struct InlineTextEditor: NSViewRepresentable {
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            parent.onCommit()
+            // Focus changes to style controls do not commit the draft.
         }
 
         func textShouldEndEditing(_ textView: NSTextView) -> Bool {
@@ -1227,11 +1379,7 @@ private struct InlineTextEditor: NSViewRepresentable {
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                if NSEvent.modifierFlags.contains(.shift) {
-                    return false // Shift+Enter = new line
-                }
-                parent.onCommit()
-                return true
+                return false
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
                 parent.onEscape()
@@ -1240,39 +1388,46 @@ private struct InlineTextEditor: NSViewRepresentable {
             return false
         }
 
+        private var reportedHeight: CGFloat = 0
+
         func updateTextSize() {
-            guard let textView, let scrollView else { return }
-            textView.sizeToFit()
-
-            let maxWidth = scrollView.frame.width > 0 ? scrollView.frame.width : 600
-            let textWidth = textView.frame.width
-            if textWidth > maxWidth {
-                textView.textContainer?.containerSize = NSSize(width: maxWidth, height: .greatestFiniteMagnitude)
-                textView.textContainer?.widthTracksTextView = true
+            guard let textView, let scrollView, let container = textView.textContainer,
+                  let manager = textView.layoutManager else { return }
+            let width = max(24, scrollView.contentSize.width)
+            container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            manager.ensureLayout(for: container)
+            let height = max(parent.fontSize * 1.25 + 4, ceil(manager.usedRect(for: container).height) + 4)
+            let size = NSSize(width: width, height: max(height, scrollView.contentSize.height))
+            if textView.frame.size != size { textView.setFrameSize(size) }
+            if abs(height - reportedHeight) > 0.5 {
+                reportedHeight = height
+                DispatchQueue.main.async { [weak self] in self?.parent.onHeightChange(height) }
             }
         }
 
-        func applyUnderlineIfNeeded() {
-            guard let textView, let textStorage = textView.textStorage else { return }
-            if parent.isUnderline {
-                let range = NSRange(location: 0, length: textStorage.length)
-                textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            }
-        }
+    }
+}
+
+private final class InlineTextScrollView: NSScrollView {
+    var onLayout: (() -> Void)?
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }
 
 private final class InlineTextView: NSTextView {
+    var onCommit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36, event.modifierFlags.contains(.command), !hasMarkedText() {
+            onCommit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            // Show cursor at end
-            if let end = textStorage?.length {
-                setSelectedRange(NSRange(location: end, length: 0))
-            }
-        }
-        return result
-    }
+
 }

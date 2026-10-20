@@ -91,6 +91,7 @@ struct CropHandleHitView: View {
 struct MosaicMaskView: View {
     let annotations: [ScreenshotEditorAnnotation]
     let draftPoints: [CGPoint]
+    let draftBrushSize: CGFloat
     let imageSize: CGSize
     let displaySize: CGSize
 
@@ -110,12 +111,12 @@ struct MosaicMaskView: View {
 
     private func strokeMosaic(points: [CGPoint], brushSize: CGFloat, in context: inout GraphicsContext) {
         let displayPoints = points.map(imagePointToDisplayPoint)
-        let lineWidth = max(brushSize * displayScale, 10)
+        let lineWidth = max(brushSize * displayScale, 1)
         stroke(points: displayPoints, lineWidth: lineWidth, in: &context)
     }
 
     private func strokeDraft(points: [CGPoint], in context: inout GraphicsContext) {
-        stroke(points: points, lineWidth: max(28 * displayScale, 10), in: &context)
+        stroke(points: points, lineWidth: max(draftBrushSize * displayScale, 1), in: &context)
     }
 
     private func stroke(points: [CGPoint], lineWidth: CGFloat, in context: inout GraphicsContext) {

@@ -24,8 +24,8 @@ final class SettingsLayoutTests: XCTestCase {
                     return [value.redComponent, value.greenComponent, value.blueComponent]
                 }
                 foreground = rgb(AppPanelStyle.secondaryTextColor)
-                start = rgb(.windowBackgroundColor)
-                end = rgb(.underPageBackgroundColor)
+                start = rgb(AppPanelStyle.backgroundStartColor)
+                end = rgb(AppPanelStyle.backgroundEndColor)
             }
             XCTAssertEqual(foreground.count, 3)
             XCTAssertEqual(start.count, 3)
@@ -44,6 +44,31 @@ final class SettingsLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testGradientUsesSameColorsAtSamePositionsRegardlessOfHeight() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            func render(height: CGFloat) throws -> NSBitmapImageRep {
+                let renderer = ImageRenderer(content: Rectangle().fill(.clear)
+                    .frame(width: 320, height: height)
+                    .background(AppPanelStyle.background)
+                    .environment(\.colorScheme, scheme))
+                renderer.scale = 1
+                let image = try XCTUnwrap(renderer.nsImage)
+                return try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation)))
+            }
+            let short = try render(height: 600)
+            let tall = try render(height: 1000)
+            for point in [(20, 20), (160, 300), (300, 580)] {
+                let a = try XCTUnwrap(short.colorAt(x: point.0, y: point.1)?.usingColorSpace(.sRGB))
+                let b = try XCTUnwrap(tall.colorAt(x: point.0, y: point.1)?.usingColorSpace(.sRGB))
+                XCTAssertEqual(a.redComponent, b.redComponent, accuracy: 0.005)
+                XCTAssertEqual(a.greenComponent, b.greenComponent, accuracy: 0.005)
+                XCTAssertEqual(a.blueComponent, b.blueComponent, accuracy: 0.005)
+                XCTAssertEqual(a.alphaComponent, 1, accuracy: 0.005)
+            }
+        }
+    }
+
+    @MainActor
     func testSelectingSystemThemeClearsForcedWindowAppearance() {
         _ = NSApplication.shared
         let manager = ThemeManager.shared
@@ -57,6 +82,33 @@ final class SettingsLayoutTests: XCTestCase {
         manager.currentTheme = .system
         XCTAssertNil(NSApp.appearance)
         XCTAssertNil(window.appearance)
+    }
+
+    @MainActor
+    func testRapidThemeTransitionsDoNotBlockInputOrLeaveOverlays() async throws {
+        _ = NSApplication.shared
+        let manager = ThemeManager.shared
+        let original = manager.currentTheme
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 240, height: 160),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
+        let button = NSButton(frame: CGRect(x: 20, y: 20, width: 100, height: 30))
+        content.addSubview(button)
+        window.contentView = content
+        window.orderFront(nil)
+        defer { window.close(); manager.currentTheme = original }
+        manager.currentTheme = .light
+        manager.currentTheme = .dark
+        manager.currentTheme = .light
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let overlay = try XCTUnwrap(content.subviews.last)
+            XCTAssertFalse(overlay === button)
+            XCTAssertNil(overlay.hitTest(CGPoint(x: 40, y: 30)))
+        }
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(content.subviews.count, 1)
+        XCTAssertTrue(content.subviews.first === button)
     }
 
     @MainActor

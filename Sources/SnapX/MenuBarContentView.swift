@@ -91,8 +91,7 @@ struct MenuBarContentView: View {
                     systemImage: "camera.viewfinder"
                 )
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(MenuActionButtonStyle(emphasis: .primary))
 
             Button(action: appState.startDisplayCapture) {
                 actionLabel(
@@ -101,7 +100,7 @@ struct MenuBarContentView: View {
                     systemImage: "rectangle.inset.filled"
                 )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(MenuActionButtonStyle())
 
             Button(action: appState.openHistory) {
                 actionLabel(
@@ -110,13 +109,12 @@ struct MenuBarContentView: View {
                     systemImage: "clock.arrow.circlepath"
                 )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(MenuActionButtonStyle())
 
-            Button(action: appState.clearPinnedShots) {
-                Label("清空所有钉图", systemImage: "rectangle.stack.badge.minus")
-                    .frame(maxWidth: .infinity)
+            Button(role: .destructive, action: appState.clearPinnedShots) {
+                actionLabel(title: "清空所有钉图", shortcut: "", systemImage: "rectangle.stack.badge.minus")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(MenuActionButtonStyle(emphasis: .destructive))
             .disabled(appState.pinnedCount == 0)
 
             Button(action: appState.openSettings) {
@@ -161,16 +159,22 @@ struct MenuBarContentView: View {
                 Slider(value: pinOpacityBinding, in: 0.25 ... 1)
             }
 
-            Toggle(isOn: mousePassthroughBinding) {
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
                     Text("允许钉图鼠标穿透")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("开启后可直接点击下层窗口，恢复交互可在菜单栏关闭。")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(AppPanelStyle.secondaryText)
+                    Spacer()
+                    Toggle("允许钉图鼠标穿透", isOn: mousePassthroughBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityHint("开启后可点击钉图下方的窗口；关闭后恢复钉图交互。")
                 }
+                Text("开启后可点击钉图下方的窗口。\n如需操作钉图，请在此关闭。")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .toggleStyle(.switch)
         }
         .padding(12)
         .background(AppPanelStyle.groupFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -196,11 +200,13 @@ struct MenuBarContentView: View {
 
     private func actionLabel(title: String, shortcut: String, systemImage: String) -> some View {
         HStack(spacing: 10) {
-            Label(title, systemImage: systemImage)
+            Image(systemName: systemImage)
+                .frame(width: 18)
+            Text(title)
             Spacer()
             Text(shortcut)
                 .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                .foregroundStyle(AppPanelStyle.secondaryText)
+                .opacity(0.85)
         }
         .frame(maxWidth: .infinity)
     }
@@ -252,5 +258,37 @@ struct MenuBarContentView: View {
                 .padding(.vertical, 4)
                 .background(AppPanelStyle.groupFill, in: Capsule())
         }
+    }
+}
+
+/// Shared geometry keeps primary, secondary, and disabled actions aligned.
+struct MenuActionButtonStyle: ButtonStyle {
+    enum Emphasis { case normal, primary, destructive }
+    var emphasis: Emphasis = .normal
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var fill: Color {
+        guard isEnabled else { return AppPanelStyle.groupFill }
+        switch emphasis {
+        case .normal: return AppPanelStyle.groupFill
+        case .primary: return AppPanelStyle.accent
+        case .destructive: return Color(nsColor: .systemRed)
+        }
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(isEnabled ? (emphasis == .normal ? Color.primary : Color.white) : Color.secondary)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(isEnabled && emphasis == .normal ? 0.12 : 0), lineWidth: 0.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .opacity(configuration.isPressed && isEnabled ? 0.75 : (isEnabled ? 1 : 0.55))
     }
 }

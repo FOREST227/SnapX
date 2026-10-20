@@ -4,13 +4,15 @@ import SwiftUI
 @MainActor
 final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate {
     private let onClose: () -> Void
+    private let recognizedText: String
 
     init(text: String, onClose: @escaping () -> Void) {
         self.onClose = onClose
+        self.recognizedText = text
 
         let panel = NSPanel(
             contentRect: CGRect(x: 0, y: 0, width: 420, height: 280),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -57,6 +59,7 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
         window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.title = "提取到的文字"
+        window.minSize = NSSize(width: 320, height: 220)
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isFloatingPanel = true
@@ -79,6 +82,10 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let textView = NSTextView(frame: .zero)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
@@ -90,13 +97,19 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
 
         scrollView.documentView = textView
 
+        let copyButton = NSButton(title: "复制全部", target: self, action: #selector(copyAllText))
+        copyButton.bezelStyle = .rounded
+        copyButton.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(copyButton)
         container.addSubview(subtitle)
         container.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
             subtitle.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
             subtitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
-            subtitle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+            subtitle.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
+            copyButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+            copyButton.centerYAnchor.constraint(equalTo: subtitle.centerYAnchor),
             scrollView.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
@@ -104,5 +117,9 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
         ])
 
         window.contentView = container
+    }
+
+    @objc private func copyAllText() {
+        ScreenshotEditorFileIO.copyTextToPasteboard(recognizedText)
     }
 }

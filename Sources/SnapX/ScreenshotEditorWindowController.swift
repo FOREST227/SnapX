@@ -11,6 +11,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
     private let onClose: () -> Void
     private let layout: ScreenshotEditorLayout
     private var keyMonitor: Any?
+    private var extractionTask: Task<Void, Never>?
 
     init(
         image: NSImage,
@@ -45,6 +46,10 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
     }
 
     func windowWillClose(_ notification: Notification) {
+        extractionTask?.cancel()
+        extractionTask = nil
+        viewModel.isExtractingText = false
+        for child in window?.childWindows ?? [] { child.close() }
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
@@ -104,19 +109,16 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
 
+            // NSTextView and the input method own all keys while typing, including
+            // candidate numbers, Escape, Return, and text undo/redo.
+            if self.viewModel.hasActiveTextDraft { return event }
+
             if event.keyCode == UInt16(kVK_Escape) {
-                if self.viewModel.hasActiveTextDraft {
-                    self.viewModel.textDraftDiscardRequest = true
-                    return nil
-                }
                 self.close()
                 return nil
             }
 
             if event.keyCode == UInt16(kVK_Return) {
-                if self.viewModel.hasActiveTextDraft {
-                    return event
-                }
                 self.completeEditing()
                 return nil
             }
@@ -126,8 +128,6 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             let isRedo = (flags == [.command] && event.keyCode == UInt16(kVK_ANSI_Y)) ||
                 (flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_Z))
             if isUndo || isRedo {
-                // Let the text editor handle its own history while a draft is being edited.
-                if self.viewModel.hasActiveTextDraft { return event }
                 if isUndo {
                     self.viewModel.undoLastAnnotation()
                 } else {
@@ -171,7 +171,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         }
     }
 
-    private func extractTextFromImage() {
+    func extractTextFromImage() {
         guard !viewModel.isExtractingText else { return }
 
         let image = viewModel.renderedImage()
@@ -184,7 +184,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         viewModel.isExtractingText = true
         viewModel.showToast("正在提取文字…")
 
-        Task.detached(priority: .userInitiated) {
+        extractionTask = Task.detached(priority: .userInitiated) { [weak self] in
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
@@ -198,7 +198,10 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                     .joined(separator: "\n")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard let self, !Task.isCancelled else { return }
+                    self.extractionTask = nil
                     self.viewModel.isExtractingText = false
                     guard !text.isEmpty else {
                         NSSound.beep()
@@ -211,10 +214,13 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                     RecognizedTextPresenter.present(text: text, parentWindow: self.window)
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard let self, !Task.isCancelled else { return }
+                    self.extractionTask = nil
                     self.viewModel.isExtractingText = false
                     NSSound.beep()
-                    self.viewModel.showToast("提取失败")
+                    self.viewModel.showToast("提取失败：\(error.localizedDescription)", duration: 8)
                 }
             }
         }

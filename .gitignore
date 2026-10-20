@@ -10,3 +10,6 @@ DerivedData/
 package-lock.json
 __pycache__/
 *.pyc
+
+# Local assistant permissions and machine-specific paths
+/.claude/

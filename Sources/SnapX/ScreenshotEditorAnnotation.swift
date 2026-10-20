@@ -17,7 +17,7 @@ enum ScreenshotEditorTool: String, CaseIterable, Identifiable {
         case .rectangle:
             "square"
         case .highlight:
-            "rectangle.and.pencil.and.ellipsis"
+            "highlighter"
         case .text:
             "t.square"
         case .arrow:
@@ -179,6 +179,7 @@ struct TextAnnotation {
     let isBold: Bool
     let isItalic: Bool
     let isUnderline: Bool
+    var maxWidth: CGFloat? = nil
 }
 
 struct MosaicAnnotation {

@@ -113,6 +113,11 @@ jobs:
 
           echo "files=${OUTPUTS}" >> "$GITHUB_OUTPUT"
 
+      - name: Generate checksums
+        run: |
+          cd Build
+          shasum -a 256 SnapX-${{ steps.version.outputs.tag }}-*.dmg SnapX-${{ steps.version.outputs.tag }}-*.zip > SHA256SUMS.txt
+
       - name: Prepare release notes
         run: |
           TAG="${{ steps.version.outputs.tag }}"
@@ -137,5 +142,6 @@ jobs:
             Build/SnapX-${{ steps.version.outputs.tag }}-x86_64.zip
             Build/SnapX-${{ steps.version.outputs.tag }}-universal.dmg
             Build/SnapX-${{ steps.version.outputs.tag }}-universal.zip
+            Build/SHA256SUMS.txt
           draft: false
           prerelease: false

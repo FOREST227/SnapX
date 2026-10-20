@@ -48,6 +48,19 @@ final class AnnotationHistoryTests: XCTestCase {
         XCTAssertEqual(model.annotations.map(\.id), [replacement.id])
     }
 
+    @MainActor
+    func testUndoReplacementRestoresPreviousAnnotation() {
+        let model = ScreenshotEditorViewModel(image: NSImage(size: NSSize(width: 10, height: 10)))
+        let original = annotation()
+        let replacement = annotation()
+        model.addAnnotation(original)
+        model.annotations[0] = replacement
+        model.undoLastAnnotation()
+        XCTAssertEqual(model.annotations.map(\.id), [original.id])
+        model.redoLastAnnotation()
+        XCTAssertEqual(model.annotations.map(\.id), [replacement.id])
+    }
+
     private func annotation() -> ScreenshotEditorAnnotation {
         .line(LineAnnotation(start: .zero, end: CGPoint(x: 8, y: 8), color: .red, lineWidth: 2))
     }

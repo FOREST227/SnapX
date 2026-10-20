@@ -13,6 +13,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         configureStatusItem()
         configurePopover()
+        NotificationCenter.default.addObserver(self, selector: #selector(applyPopoverTheme),
+            name: ThemeManager.themeChangedNotification, object: nil)
+
 
         appState.dismissStatusPanel = { [weak self] in
             self?.closePopover()
@@ -20,6 +23,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     func tearDown() {
+        NotificationCenter.default.removeObserver(self)
         appState.dismissStatusPanel = nil
         closePopover()
         NSStatusBar.system.removeStatusItem(statusItem)
@@ -35,6 +39,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
+        ThemeManager.shared.preserveSystemAppearance(for: button.window)
 
         let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapX")
         image?.isTemplate = true
@@ -54,6 +59,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.animates = true
         popover.delegate = self
         popover.contentSize = CGSize(width: AppPanelStyle.width, height: 430)
+        applyPopoverTheme()
+    }
+
+    @objc private func applyPopoverTheme() {
+        popover.appearance = ThemeManager.shared.currentTheme.nsAppearance
+        ThemeManager.shared.applyTheme(to: popover.contentViewController?.view.window)
     }
 
     private func showPopover() {
@@ -61,6 +72,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         appState.refreshPermissionStates()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        applyPopoverTheme()
         popover.contentViewController?.view.window?.makeKey()
     }
 

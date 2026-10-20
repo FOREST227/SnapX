@@ -11,7 +11,6 @@ struct SettingsView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("设置").font(.system(size: 20, weight: .semibold, design: .rounded))
                     Spacer()
-                    Text("SnapX").font(.system(size: 12, weight: .medium)).foregroundStyle(AppPanelStyle.secondaryText)
                 }
                 captureSection
                 shortcutSection
@@ -217,6 +216,8 @@ private struct CaptureTimingModeButton: View {
 private struct ThemeSegmentedControl: View {
     @Binding var selection: AppTheme
     @FocusState private var focusedTheme: AppTheme?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var selectionAnimation
 
     var body: some View {
         HStack(spacing: 0) {
@@ -224,16 +225,27 @@ private struct ThemeSegmentedControl: View {
                 Button { selection = theme } label: {
                     Text(theme.displayName)
                         .font(.system(size: 12, weight: selection == theme ? .semibold : .regular))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(selection == theme ? AppPanelStyle.accent : Color.primary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 32)
                         .contentShape(Rectangle())
+                        .background {
+                            if selection == theme {
+                                RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius - 2)
+                                    .fill(AppPanelStyle.accent.opacity(0.10))
+                                    .matchedGeometryEffect(id: "themeSelection", in: selectionAnimation)
+                                    .padding(2)
+                            }
+                        }
                         .overlay(alignment: .bottom) {
-                            Capsule()
-                                .fill(selection == theme ? AppPanelStyle.accent : .clear)
-                                .frame(height: 2)
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 3)
+                            if selection == theme {
+                                Capsule()
+                                    .fill(AppPanelStyle.accent)
+                                    .frame(height: 2)
+                                    .matchedGeometryEffect(id: "themeUnderline", in: selectionAnimation)
+                                    .padding(.horizontal, 12)
+                                    .padding(.bottom, 3)
+                            }
                         }
                 }
                 .buttonStyle(.plain)
@@ -249,6 +261,7 @@ private struct ThemeSegmentedControl: View {
         .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
         .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
             .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
+        .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("界面外观")
         .onMoveCommand { direction in

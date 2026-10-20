@@ -16,16 +16,22 @@ final class ScreenshotEditorViewModel: ObservableObject {
         }
     }
     @Published var selectedColor: ScreenshotAnnotationColor = .red
+    @Published var highlightOpacity: Double = 0.35
+    @Published var mosaicBrushSize: Double = 28
     @Published var textFontSize: CGFloat = 24
     @Published var textIsBold: Bool = false
     @Published var textIsItalic: Bool = false
     @Published var textIsUnderline: Bool = false
     @Published var annotations: [ScreenshotEditorAnnotation] = [] {
         didSet {
-            if !isApplyingHistory { redoAnnotations.removeAll() }
+            if !isApplyingHistory {
+                undoSnapshots.append(oldValue)
+                redoSnapshots.removeAll()
+            }
         }
     }
-    @Published private var redoAnnotations: [ScreenshotEditorAnnotation] = []
+    @Published private var undoSnapshots: [[ScreenshotEditorAnnotation]] = []
+    @Published private var redoSnapshots: [[ScreenshotEditorAnnotation]] = []
     private var isApplyingHistory = false
     @Published var isExtractingText = false
     @Published var toastMessage: String?
@@ -61,11 +67,11 @@ final class ScreenshotEditorViewModel: ObservableObject {
     }
 
     var canUndo: Bool {
-        !annotations.isEmpty
+        !undoSnapshots.isEmpty
     }
 
     var canRedo: Bool {
-        !redoAnnotations.isEmpty
+        !redoSnapshots.isEmpty
     }
 
     var canAdjustCrop: Bool {
@@ -76,18 +82,31 @@ final class ScreenshotEditorViewModel: ObservableObject {
         annotations.append(annotation)
     }
 
+    func addHighlight(rect: CGRect) {
+        addAnnotation(.highlight(HighlightAnnotation(rect: rect, color: selectedColor,
+            opacity: CGFloat(min(max(highlightOpacity, 0), 1)))))
+    }
+
+    func addMosaic(points: [CGPoint]) {
+        guard !points.isEmpty else { return }
+        addAnnotation(.mosaic(MosaicAnnotation(points: points,
+            brushSize: CGFloat(min(max(mosaicBrushSize, 8), 100)))))
+    }
+
     func undoLastAnnotation() {
-        guard !annotations.isEmpty else { return }
+        guard let previous = undoSnapshots.popLast() else { return }
         isApplyingHistory = true
         defer { isApplyingHistory = false }
-        redoAnnotations.append(annotations.removeLast())
+        redoSnapshots.append(annotations)
+        annotations = previous
     }
 
     func redoLastAnnotation() {
-        guard let annotation = redoAnnotations.popLast() else { return }
+        guard let next = redoSnapshots.popLast() else { return }
         isApplyingHistory = true
         defer { isApplyingHistory = false }
-        annotations.append(annotation)
+        undoSnapshots.append(annotations)
+        annotations = next
     }
 
     func renderedImage() -> NSImage {
@@ -113,16 +132,20 @@ final class ScreenshotEditorViewModel: ObservableObject {
         previewTask = nil
         previewGeneration += 1
         pixelatedPreviewImage = nil
+        isApplyingHistory = true
         annotations.removeAll()
+        isApplyingHistory = false
+        undoSnapshots.removeAll()
+        redoSnapshots.removeAll()
         if activeTool == .mosaic { generatePixelatedPreview(for: newImage) }
     }
 
-    func showToast(_ message: String) {
+    func showToast(_ message: String, duration: TimeInterval = 1.8) {
         toastDismissTask?.cancel()
         toastMessage = message
 
         toastDismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(max(0, duration) * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.toastMessage = nil

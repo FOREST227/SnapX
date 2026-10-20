@@ -2,323 +2,248 @@ import AppKit
 import SwiftUI
 
 @MainActor
+final class HistoryBrowserModel: ObservableObject {
+    @Published var selection = HistorySelection()
+    func reconcile(_ items: [HistoryItem]) { selection.reconcile(items.map(\.id)) }
+    func select(_ item: HistoryItem, items: [HistoryItem]) {
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+        selection.select(item.id, in: items.map(\.id), command: modifiers.contains(.command), shift: modifiers.contains(.shift))
+    }
+    func move(_ delta: Int, items: [HistoryItem]) { selection.move(delta, in: items.map(\.id)) }
+}
+
+@MainActor
 final class HistoryWindowController: NSWindowController {
     private static var shared: HistoryWindowController?
+    private let model = HistoryBrowserModel()
+    private var largeWindow: NSWindow?
+    private static let minimumContentSize = NSSize(width: 600, height: 400)
+
+    init(appState: AppState) {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 960, height: 640),
+                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        super.init(window: window)
+        window.title = "截图历史"
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: HistoryView(model: model, appState: appState,
+            onExpand: { [weak self] in self?.showLargePreview(appState: appState) })
+            .frame(minWidth: Self.minimumContentSize.width, minHeight: Self.minimumContentSize.height))
+        host.sizingOptions = [.minSize]
+        window.contentView = host
+        window.contentMinSize = Self.minimumContentSize
+        window.setContentSize(NSSize(width: 960, height: 640))
+        window.center()
+        ThemeManager.shared.applyTheme(to: window)
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     static func present(appState: AppState) {
-        if shared == nil {
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "截图历史"
-            window.center()
-            window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(
-                rootView: HistoryView()
-                    .environmentObject(appState)
-            )
-            shared = HistoryWindowController(window: window)
+        if shared == nil { shared = HistoryWindowController(appState: appState) }
+        shared?.model.reconcile(ScreenshotHistory.shared.items)
+        if let window = shared?.window, let size = window.contentView?.bounds.size {
+            window.setContentSize(NSSize(width: max(size.width, minimumContentSize.width), height: max(size.height, minimumContentSize.height)))
         }
         shared?.showWindow(nil)
-        shared?.window?.orderFrontRegardless()
+        shared?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    private func showLargePreview(appState: AppState) {
+        guard model.selection.focusedID != nil else { return }
+        if largeWindow == nil {
+            let screen = window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
+            let size = CGSize(width: min(1100, screen.width - 40), height: min(760, screen.height - 60))
+            let panel = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                                 styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            panel.title = "截图预览"
+            panel.isReleasedWhenClosed = false
+            let host = NSHostingView(rootView: HistoryDetailView(model: model, appState: appState,
+                expanded: true, onExpand: { [weak self] in
+                    self?.largeWindow?.close()
+                    self?.window?.makeKeyAndOrderFront(nil)
+                }).frame(minWidth: 560, minHeight: 360))
+            host.sizingOptions = [.minSize]
+            panel.contentView = host
+            panel.setContentSize(size)
+            panel.center()
+            ThemeManager.shared.applyTheme(to: panel)
+            largeWindow = panel
+        }
+        largeWindow?.makeKeyAndOrderFront(nil)
+    }
 }
 
-private struct HistoryView: View {
-    @EnvironmentObject private var appState: AppState
+struct HistoryView: View {
+    @ObservedObject var model: HistoryBrowserModel
+    let appState: AppState
+    let onExpand: () -> Void
     @ObservedObject private var history = ScreenshotHistory.shared
-    @State private var selectedItem: HistoryItem?
-    @State private var selectedIDs: Set<UUID> = []
-
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
 
     var body: some View {
-        if history.items.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "photo.on.rectangle.angled")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-                Text("暂无截图历史")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(history.items) { item in
-                        ThumbnailCell(
-                            item: item,
-                            isSelected: selectedIDs.contains(item.id),
-                            onSelect: { selectedItem = item },
-                            onToggleSelect: { toggleSelect(item) },
-                            onDelete: { history.remove(item) },
-                            onCopy: { copyImages(for: item) }
-                        )
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("历史记录").font(.headline)
+                    Spacer()
+                    Text("\(history.items.count)").foregroundStyle(.secondary).monospacedDigit()
+                    Menu {
+                        Button("清空历史", role: .destructive) { history.clear(); model.reconcile(history.items) }
+                            .disabled(history.items.isEmpty)
+                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
+                }.padding(14)
+                Divider()
+                ScrollViewReader { reader in
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(history.items) { item in
+                                Button { model.select(item, items: history.items) } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Image(nsImage: item.image).resizable().aspectRatio(contentMode: .fit)
+                                            .frame(maxWidth: .infinity).frame(height: 94)
+                                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                                        HStack {
+                                            Text(item.date, style: .time).font(.system(size: 11))
+                                            Spacer()
+                                            if model.selection.selectedIDs.contains(item.id) {
+                                                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                                            }
+                                        }
+                                    }
+                                    .padding(8)
+                                    .background(model.selection.selectedIDs.contains(item.id) ? Color.accentColor.opacity(0.12) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 8))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(model.selection.focusedID == item.id ? Color.accentColor : Color.clear, lineWidth: 2))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("截图 \(item.date.formatted())")
+                                .id(item.id)
+                            }
+                        }.padding(10)
+                    }
+                    .onChange(of: model.selection.focusedID) { id in
+                        if let id { reader.scrollTo(id) }
                     }
                 }
-                .padding(16)
+                Divider()
+                Text("⌘ 多选 · Shift 连选 · ↑↓ 切图")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).padding(10)
             }
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button("清空历史") { history.clear() }
-                        .foregroundStyle(.red)
-                }
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        pinSelected()
-                    } label: {
-                        Label("钉住所选", systemImage: "pin")
-                    }
-                    .disabled(selectedIDs.isEmpty)
-                }
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        copySelected()
-                    } label: {
-                        Label("复制所选", systemImage: "doc.on.doc")
-                    }
-                    .disabled(selectedIDs.isEmpty)
-                }
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        deleteSelected()
-                    } label: {
-                        Label("删除所选", systemImage: "trash")
-                    }
-                    .disabled(selectedIDs.isEmpty)
-                }
-            }
-            .sheet(item: $selectedItem) { item in
-                ImagePreviewView(item: item)
-                    .frame(minWidth: 900, minHeight: 650)
-            }
+            .frame(width: 190)
+            .background(Color(nsColor: .controlBackgroundColor))
+            Divider()
+            HistoryDetailView(model: model, appState: appState, expanded: false, onExpand: onExpand)
         }
-    }
-
-    private func toggleSelect(_ item: HistoryItem) {
-        if selectedIDs.contains(item.id) {
-            selectedIDs.remove(item.id)
-        } else {
-            selectedIDs.insert(item.id)
-        }
-    }
-
-    private func pinSelected() {
-        history.items
-            .filter { selectedIDs.contains($0.id) }
-            .forEach { appState.pinImage($0.image) }
-        selectedIDs.removeAll()
-    }
-
-    private func deleteSelected() {
-        history.removeAll { selectedIDs.contains($0.id) }
-        selectedIDs.removeAll()
-    }
-
-    private func copySelected() {
-        let images = history.items.filter { selectedIDs.contains($0.id) }.map(\.image)
-        copyImagesToPasteboard(images)
-        selectedIDs.removeAll()
-    }
-
-    /// Copies images for a single item, or all selected items if this item is in the selection.
-    private func copyImages(for item: HistoryItem) {
-        if selectedIDs.contains(item.id), selectedIDs.count > 1 {
-            let images = history.items.filter { selectedIDs.contains($0.id) }.map(\.image)
-            copyImagesToPasteboard(images)
-            selectedIDs.removeAll()
-        } else {
-            copyImagesToPasteboard([item.image])
-        }
-    }
-
-    private func copyImagesToPasteboard(_ images: [NSImage]) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.writeObjects(images)
+        .onAppear { model.reconcile(history.items) }
+        .onChange(of: history.items.map(\.id)) { _ in model.reconcile(history.items) }
     }
 }
 
-private struct ThumbnailCell: View {
-    let item: HistoryItem
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onToggleSelect: () -> Void
-    let onDelete: () -> Void
-    let onCopy: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(spacing: 6) {
-                Image(nsImage: item.image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 110)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .shadow(radius: 2)
-
-                Text(item.date, style: .time)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(8)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-            .overlay(alignment: .topTrailing) {
-                HStack(spacing: 2) {
-                    Button(action: onCopy) {
-                        Image(systemName: "doc.on.doc")
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                    }
-                    .buttonStyle(.plain)
-                    .help("复制")
-
-                    Button(action: onDelete) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                    }
-                    .buttonStyle(.plain)
-                    .help("删除")
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                Button(action: onToggleSelect) {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button {
-                onCopy()
-            } label: {
-                Label("复制", systemImage: "doc.on.doc")
-            }
-            Button {
-                onDelete()
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-        }
-    }
-}
-
-private struct ImagePreviewView: View {
-    let item: HistoryItem
-    @EnvironmentObject private var appState: AppState
-    @Environment(\.dismiss) private var dismiss
+struct HistoryDetailView: View {
+    @ObservedObject var model: HistoryBrowserModel
+    let appState: AppState
+    let expanded: Bool
+    let onExpand: () -> Void
+    @ObservedObject private var history = ScreenshotHistory.shared
+    @StateObject private var zoom = HistoryZoomState()
+    @State private var notice: String?
+    private var item: HistoryItem? { history.items.first { $0.id == model.selection.focusedID } }
+    private var selected: [HistoryItem] { history.items.filter { model.selection.selectedIDs.contains($0.id) } }
+    private var isBatch: Bool { !expanded && !selected.isEmpty && (selected.count > 1 || selected.first?.id != item?.id) }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(item.date.formatted(date: .abbreviated, time: .standard))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    appState.pinImage(item.image)
-                    dismiss()
-                } label: {
-                    Label("钉住", systemImage: "pin")
-                }
-                .buttonStyle(.bordered)
-                Button("关闭") { dismiss() }
+            if let item {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(isBatch ? "已选择 \(selected.count) 张截图" : item.date.formatted(date: .abbreviated, time: .standard))
+                            .font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(pixelDescription(item.image)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    HStack(spacing: 10) {
+                        Button { copy() } label: { Label(isBatch ? "复制所选" : "复制", systemImage: "doc.on.doc") }
+                        Button { for value in targets { appState.pinImage(value.image) }; notice = "已钉住" } label: { Label("钉住", systemImage: "pin") }
+                        Button { save(item) } label: { Label("保存", systemImage: "square.and.arrow.down") }.disabled(isBatch)
+                        Button(role: .destructive) { delete() } label: { Image(systemName: "trash") }.help(isBatch ? "删除所选" : "删除当前截图")
+                        Spacer(minLength: 0)
+                        Button(action: onExpand) { Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }
+                            .help(expanded ? "返回历史（Esc）" : "大图预览（空格）")
+                    }.buttonStyle(.borderless).font(.system(size: 12))
+                }.padding(12)
+                Divider()
+                HistoryImageViewer(item: item, zoom: zoom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("截图预览，滚轮或捏合缩放，拖动平移，双击切换适配与原始像素")
+                Divider()
+                HStack(spacing: 10) {
+                    Button { zoom.zoom(1 / 1.25) } label: { Image(systemName: "minus.magnifyingglass") }.help("缩小")
+                    Text("\(zoom.percent)%").monospacedDigit().frame(minWidth: 42)
+                    Button { zoom.zoom(1.25) } label: { Image(systemName: "plus.magnifyingglass") }.help("放大")
+                    Button("适配") { zoom.fit() }
+                    Button("100%") { zoom.actualSize() }
+                    Spacer(minLength: 0)
+                    Button { model.move(-1, items: history.items) } label: { Image(systemName: "chevron.left") }
+                        .disabled(history.items.first?.id == item.id).help("上一张")
+                    Button { model.move(1, items: history.items) } label: { Image(systemName: "chevron.right") }
+                        .disabled(history.items.last?.id == item.id).help("下一张")
+                }.buttonStyle(.borderless).font(.system(size: 12)).padding(12)
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "photo.on.rectangle.angled").font(.system(size: 40))
+                    Text("暂无截图历史")
+                    Text("截图后可在这里浏览、复制和钉住图片").font(.system(size: 12))
+                    if expanded { Button("返回历史", action: onExpand) }
+                }.foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(16)
-
-            ZoomableImageView(image: item.image)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let notice {
+                HStack {
+                    Text(notice).font(.system(size: 11)).lineLimit(2)
+                    Spacer()
+                    Button { self.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+                }.padding(8).background(Color.accentColor.opacity(0.08))
+            }
         }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .background(HistoryKeyboardHandler { code, modifiers in
+            guard modifiers.intersection([.command, .option, .control]).isEmpty else {
+                if modifiers.contains(.command), code == 8 { copy(); return true }
+                return false
+            }
+            switch code {
+            case 123, 126: model.move(-1, items: history.items)
+            case 124, 125: model.move(1, items: history.items)
+            case 49: onExpand()
+            case 53: if expanded { onExpand() } else { return false }
+            default: return false
+            }
+            return true
+        }.frame(width: 0, height: 0))
+        .onChange(of: history.items.map(\.id)) { _ in model.reconcile(history.items) }
+        .onChange(of: model.selection.focusedID) { _ in notice = nil }
     }
-}
-
-private struct ZoomableImageView: NSViewRepresentable {
-    let image: NSImage
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = MagnifyScrollView()
-        scrollView.hasHorizontalScroller = true
-        scrollView.hasVerticalScroller = true
-        scrollView.allowsMagnification = true
-        scrollView.minMagnification = 0.05
-        scrollView.maxMagnification = 20
-        scrollView.backgroundColor = .windowBackgroundColor
-
-        // Use centering clip view so the image stays centered when smaller than viewport
-        let clipView = CenteringClipView()
-        clipView.drawsBackground = false
-        scrollView.contentView = clipView
-
-        let imageView = NSImageView(image: image)
-        imageView.imageScaling = .scaleNone
-        imageView.frame = CGRect(origin: .zero, size: image.size)
-        scrollView.documentView = imageView
-
-        // fit to window on first layout
-        DispatchQueue.main.async {
-            let viewSize = scrollView.bounds.size
-            guard viewSize.width > 0, viewSize.height > 0, image.size.width > 0, image.size.height > 0 else { return }
-            let scale = min(viewSize.width / image.size.width, viewSize.height / image.size.height)
-            scrollView.magnification = scale
-        }
-
-        return scrollView
+    private var targets: [HistoryItem] { isBatch ? selected : item.map { [$0] } ?? [] }
+    private func copy() {
+        guard !targets.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(targets.map(\.image))
+        notice = isBatch ? "已复制 \(targets.count) 张截图" : "已复制"
     }
-
-    func updateNSView(_ nsView: NSScrollView, context: Context) {}
-}
-
-/// A clip view that centers the document when the document is smaller than the visible area.
-private final class CenteringClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposedBounds)
-        guard let documentView = documentView else { return rect }
-
-        let docFrame = documentView.frame
-
-        if docFrame.width < rect.width {
-            rect.origin.x = (docFrame.width - rect.width) / 2
-        }
-        if docFrame.height < rect.height {
-            rect.origin.y = (docFrame.height - rect.height) / 2
-        }
-
-        return rect
+    private func delete() {
+        let ids = Set(targets.map(\.id))
+        history.removeAll { ids.contains($0.id) }
+        model.reconcile(history.items)
     }
-}
-
-private final class MagnifyScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        // pinch gesture — use default
-        if event.phase != [] || !event.momentumPhase.isEmpty {
-            super.scrollWheel(with: event)
-            return
-        }
-        let delta = event.scrollingDeltaY
-        guard delta != 0 else { return }
-        let factor = delta > 0 ? 1.08 : 1 / 1.08
-        let newMag = (magnification * factor).clamped(to: minMagnification...maxMagnification)
-        setMagnification(newMag, centeredAt: convert(event.locationInWindow, from: nil))
+    private func save(_ item: HistoryItem) {
+        do {
+            let url = try ScreenshotEditorFileIO.saveImageToDownloads(item.image)
+            notice = "已保存到下载：\(url.lastPathComponent)"
+        } catch { notice = "保存失败：\(error.localizedDescription)" }
     }
-}
-
-private extension Comparable {
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
+    private func pixelDescription(_ image: NSImage) -> String {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return "" }
+        return "\(cg.width) × \(cg.height) px"
     }
 }
