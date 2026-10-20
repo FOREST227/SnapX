@@ -51,12 +51,12 @@ final class TextInputTests: XCTestCase {
     func testWrappingGrowsEditorAndStyleChangesPreserveSelection() async throws {
         _ = NSApplication.shared
         var text = String(repeating: "多行文字测试", count: 8)
-        var height: CGFloat = 0
+        var height: Double = 0
         func editor(underline: Bool) -> InlineTextEditor {
             InlineTextEditor(text: Binding(get: { text }, set: { text = $0 }),
                 fontSize: 24, fontWeight: .regular, isItalic: false, isUnderline: underline,
                 textColor: .black, focused: true, onCommit: {}, onEscape: {},
-                onHeightChange: { height = $0 })
+                onHeightChange: { height = Double($0) })
         }
         let host = NSHostingView(rootView: editor(underline: true))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 180, height: 100),
