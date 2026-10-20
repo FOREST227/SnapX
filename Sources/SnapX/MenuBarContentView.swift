@@ -12,18 +12,10 @@ struct MenuBarContentView: View {
             actionButtons
             footer
         }
-        .padding(18)
-        .frame(width: 320)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor).opacity(0.95),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .padding(AppPanelStyle.padding)
+        .frame(width: AppPanelStyle.width)
+        .background(AppPanelStyle.background)
+        .tint(AppPanelStyle.accent)
         .onAppear {
             appState.refreshPermissionStates()
         }
@@ -35,7 +27,7 @@ struct MenuBarContentView: View {
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
             Text("快速截屏、标注、钉图")
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPanelStyle.secondaryText)
         }
     }
 
@@ -44,7 +36,7 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: allPermissionsGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                    .foregroundStyle(allPermissionsGranted ? .green : .orange)
+                    .foregroundStyle(allPermissionsGranted ? AppPanelStyle.accent : AppPanelStyle.warning)
                 Text(allPermissionsGranted ? "权限已就绪" : "权限状态")
                     .font(.system(size: 13, weight: .semibold))
             }
@@ -66,7 +58,7 @@ struct MenuBarContentView: View {
             if allPermissionsGranted {
                 Text("全局快捷键 \(appState.hotKeySummaryDisplay)")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppPanelStyle.secondaryText)
             } else {
                 HStack(spacing: 8) {
                     if appState.permissionStatus == .needsPermission {
@@ -85,7 +77,7 @@ struct MenuBarContentView: View {
         }
         .padding(12)
         .background(
-            (allPermissionsGranted ? Color.green.opacity(0.08) : Color.orange.opacity(0.08)),
+            AppPanelStyle.groupFill,
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
     }
@@ -133,13 +125,6 @@ struct MenuBarContentView: View {
             }
             .buttonStyle(.borderless)
 
-            Button(action: appState.updater.checkForUpdates) {
-                Label("检查更新", systemImage: "arrow.down.circle")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderless)
-            .disabled(!appState.updater.canCheckForUpdates)
-
             Button(action: openGitHubReleases) {
                 Label("GitHub 发布页", systemImage: "arrow.up.right.square")
                     .frame(maxWidth: .infinity)
@@ -170,7 +155,7 @@ struct MenuBarContentView: View {
                     Spacer()
                     Text("\(Int(appState.pinOpacity * 100))%")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppPanelStyle.secondaryText)
                 }
 
                 Slider(value: pinOpacityBinding, in: 0.25 ... 1)
@@ -182,13 +167,13 @@ struct MenuBarContentView: View {
                         .font(.system(size: 13, weight: .semibold))
                     Text("开启后可直接点击下层窗口，恢复交互可在菜单栏关闭。")
                         .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppPanelStyle.secondaryText)
                 }
             }
             .toggleStyle(.switch)
         }
         .padding(12)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AppPanelStyle.groupFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var pinOpacityBinding: Binding<Double> {
@@ -215,7 +200,7 @@ struct MenuBarContentView: View {
             Spacer()
             Text(shortcut)
                 .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPanelStyle.secondaryText)
         }
         .frame(maxWidth: .infinity)
     }
@@ -227,7 +212,7 @@ struct MenuBarContentView: View {
             Spacer()
             Text("v\(appVersion)")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPanelStyle.secondaryText)
         }
     }
 
@@ -248,24 +233,24 @@ struct MenuBarContentView: View {
     private func permissionStatusRow(title: String, isGranted: Bool, grantedDetail: String, missingDetail: String) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: isGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(isGranted ? .green : .orange)
+                .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
                 Text(isGranted ? grantedDetail : missingDetail)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppPanelStyle.secondaryText)
             }
 
             Spacer(minLength: 8)
 
-            Text(isGranted ? "已开启" : "未开启")
+            Text(isGranted ? "已授权" : "未授权")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(isGranted ? .green : .orange)
+                .foregroundStyle(AppPanelStyle.secondaryText)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background((isGranted ? Color.green : Color.orange).opacity(0.12), in: Capsule())
+                .background(AppPanelStyle.groupFill, in: Capsule())
         }
     }
 }

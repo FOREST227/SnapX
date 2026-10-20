@@ -62,7 +62,7 @@ final class ThemeManager: ObservableObject {
     }
 
     private func applyTheme() {
-        guard let appearance = currentTheme.nsAppearance else { return }
+        let appearance = currentTheme.nsAppearance
 
         NSApp.appearance = appearance
 

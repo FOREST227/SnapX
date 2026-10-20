@@ -8,39 +8,64 @@ final class ScreenshotEditorViewModel: ObservableObject {
 
     let cropInfo: ScreenshotEditorCropInfo?
 
-    @Published var activeTool: ScreenshotEditorTool = .rectangle
+    @Published var activeTool: ScreenshotEditorTool = .rectangle {
+        didSet {
+            if activeTool == .mosaic, pixelatedPreviewImage == nil, previewTask == nil {
+                generatePixelatedPreview(for: image)
+            }
+        }
+    }
     @Published var selectedColor: ScreenshotAnnotationColor = .red
     @Published var textFontSize: CGFloat = 24
     @Published var textIsBold: Bool = false
     @Published var textIsItalic: Bool = false
     @Published var textIsUnderline: Bool = false
-    @Published var annotations: [ScreenshotEditorAnnotation] = []
+    @Published var annotations: [ScreenshotEditorAnnotation] = [] {
+        didSet {
+            if !isApplyingHistory { redoAnnotations.removeAll() }
+        }
+    }
+    @Published private var redoAnnotations: [ScreenshotEditorAnnotation] = []
+    private var isApplyingHistory = false
     @Published var isExtractingText = false
     @Published var toastMessage: String?
     @Published var hasActiveTextDraft = false
     @Published var textDraftDiscardRequest = false
 
     private var toastDismissTask: Task<Void, Never>?
+    private var previewTask: Task<Void, Never>?
+    private var previewGeneration = 0
+    private let previewGenerator: @Sendable (NSImage) -> NSImage?
 
-    init(image: NSImage, cropInfo: ScreenshotEditorCropInfo? = nil) {
+    init(image: NSImage, cropInfo: ScreenshotEditorCropInfo? = nil,
+         previewGenerator: @escaping @Sendable (NSImage) -> NSImage? = { ScreenshotEditorRenderer.makePixelatedPreviewImage(for: $0) }) {
+        self.previewGenerator = previewGenerator
         self.image = image
         self.cropInfo = cropInfo
         pixelatedPreviewImage = nil
-        generatePixelatedPreview(for: image)
     }
 
-    private nonisolated func generatePixelatedPreview(for image: NSImage) {
-        let renderer = ScreenshotEditorRenderer.self
-        Task.detached(priority: .userInitiated) { @Sendable [weak self] in
-            let pixelated = renderer.makePixelatedPreviewImage(for: image)
+    private func generatePixelatedPreview(for image: NSImage) {
+        let generator = previewGenerator
+        let generation = previewGeneration
+        previewTask = Task.detached(priority: .userInitiated) { @Sendable [weak self] in
+            guard !Task.isCancelled else { return }
+            let pixelated = generator(image)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                self?.pixelatedPreviewImage = pixelated
+                guard let self, self.previewGeneration == generation else { return }
+                self.pixelatedPreviewImage = pixelated
+                self.previewTask = nil
             }
         }
     }
 
     var canUndo: Bool {
         !annotations.isEmpty
+    }
+
+    var canRedo: Bool {
+        !redoAnnotations.isEmpty
     }
 
     var canAdjustCrop: Bool {
@@ -53,7 +78,16 @@ final class ScreenshotEditorViewModel: ObservableObject {
 
     func undoLastAnnotation() {
         guard !annotations.isEmpty else { return }
-        annotations.removeLast()
+        isApplyingHistory = true
+        defer { isApplyingHistory = false }
+        redoAnnotations.append(annotations.removeLast())
+    }
+
+    func redoLastAnnotation() {
+        guard let annotation = redoAnnotations.popLast() else { return }
+        isApplyingHistory = true
+        defer { isApplyingHistory = false }
+        annotations.append(annotation)
     }
 
     func renderedImage() -> NSImage {
@@ -75,9 +109,12 @@ final class ScreenshotEditorViewModel: ObservableObject {
 
         let newImage = NSImage(cgImage: croppedCG, size: newRect.size)
         image = newImage
+        previewTask?.cancel()
+        previewTask = nil
+        previewGeneration += 1
         pixelatedPreviewImage = nil
         annotations.removeAll()
-        generatePixelatedPreview(for: newImage)
+        if activeTool == .mosaic { generatePixelatedPreview(for: newImage) }
     }
 
     func showToast(_ message: String) {

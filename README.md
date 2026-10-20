@@ -90,30 +90,47 @@ macOS 原生截图工具。截完图直接在原位编辑，支持标注、钉�
 
 前往 [Releases](https://github.com/Forest227/SnapX/releases/latest) 下载 `SnapX-vX.X.X.dmg`，挂载后将 SnapX.app 拖入应用程序文件夹。
 
-### 首次打开提示"无法打开"
+### 首次打开
 
-SnapX 使用自签名证书，macOS 会阻止首次运行。请在终端执行：
+GitHub 发布包使用临时签名，未经过 Apple 公证。如提示无法验证开发者，请确认安装包来自本项目 Releases，再在“系统设置 → 隐私与安全性”中允许打开。
 
-```bash
-xattr -cr /Applications/SnapX.app
-```
+### 手动更新
 
-然后重新打开即可。也可以右键点击 SnapX.app → 选择"打开" → 在弹出对话框中点击"打开"。
+应用不再内置检查更新或后台自动更新。需要新版时，请通过菜单中的“GitHub 发布页”下载安装。
 
 ### 从源码构建
 
 ```bash
-git clone https://github.com/Forest227/SnapBoard.git
-cd SnapBoard
+git clone https://github.com/Forest227/SnapX.git
+cd SnapX
 
 # 直接运行
 swift run
 
-# 打包 .app（输出到 Build/SnapX.app）
-./Scripts/build_app.sh
+# 首次配置固定的本机签名证书（以后无需重复创建）
+bash Scripts/setup_local_signing.sh
+
+# 打包 .app（输出到 Build/SnapX-arm64.app）
+bash Scripts/build_app.sh arm64
+
+# 保存截图并退出 SnapX 后，构建、备份旧版、安装到固定位置并启动
+bash Scripts/install_local.sh
 ```
 
 需要 Swift 6.2+ 工具链。
+
+本机构建固定使用钥匙串中的 `SnapX Dev` 代码签名证书，证书指纹及公开证书保存在
+`~/Library/Application Support/SnapX/Signing/`，私钥保存在登录钥匙串。初始化脚本可重复运行，
+会复用原身份；构建找不到该身份时直接报错，不会退回临时签名。请保留原证书及私钥，
+换电脑时通过钥匙串访问安全导出并迁移该身份，不要重新生成同名证书。
+
+第一次从临时签名切换到固定签名后，需要重新授予屏幕录制及辅助功能权限。
+之后保持同一签名身份、Bundle ID 和 `/Applications/SnapX.app` 安装位置，通常可以沿用权限；
+macOS 自身要求的再次确认仍可能出现。不要混用 `swift run`、GitHub 下载版和本机签名版来验证权限保留。
+
+GitHub Actions 显式使用 `SNAPX_SIGNING_MODE=adhoc` 保留原有发布方式，不包含本机私钥。
+用这些临时签名的发布包覆盖本机签名版会改变身份，可能再次要求授权。
+
 
 ## 项目结构
 
@@ -151,3 +168,10 @@ python3 Scripts/audit_platform_dependencies.py
 ## 许可
 
 [MIT](LICENSE)
+
+## 发布流程
+
+提升 `Packaging/SnapX-Info.plist` 中的版本号，新增对应的 `release/v版本号/RELEASE.md`，
+将这些修改提交到 `main` 后，GitHub Actions 会先测试，再构建 Apple Silicon、Intel 和通用版，
+最后创建对应标签与 GitHub Release。也支持推送版本标签或手动运行发布工作流。
+已存在且指向不同提交的版本标签会阻止发布，请使用新的版本号。

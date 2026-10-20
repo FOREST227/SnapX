@@ -87,7 +87,17 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         )
         .preferredColorScheme(ThemeManager.shared.currentTheme.colorScheme)
 
-        window.contentView = NSHostingView(rootView: rootView)
+        // A native image backing remains visible while SwiftUI prepares its first frame.
+        let surface = NSImageView(frame: CGRect(origin: .zero, size: layout.screenSize))
+        surface.image = viewModel.cropInfo?.fullScreenImage
+        surface.imageScaling = .scaleAxesIndependently
+        let hostingView = ScreenshotEditorHostingView(rootView: rootView)
+        hostingView.frame = surface.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        surface.addSubview(hostingView)
+        window.contentView = surface
+        surface.layoutSubtreeIfNeeded()
+        surface.displayIfNeeded()
     }
 
     private func installKeyMonitor() {
@@ -111,10 +121,18 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                 return nil
             }
 
-            let commandFlags: NSEvent.ModifierFlags = [.command]
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == commandFlags,
-               event.charactersIgnoringModifiers?.lowercased() == "z" {
-                self.viewModel.undoLastAnnotation()
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            let isUndo = flags == [.command] && event.keyCode == UInt16(kVK_ANSI_Z)
+            let isRedo = (flags == [.command] && event.keyCode == UInt16(kVK_ANSI_Y)) ||
+                (flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_Z))
+            if isUndo || isRedo {
+                // Let the text editor handle its own history while a draft is being edited.
+                if self.viewModel.hasActiveTextDraft { return event }
+                if isUndo {
+                    self.viewModel.undoLastAnnotation()
+                } else {
+                    self.viewModel.redoLastAnnotation()
+                }
                 return nil
             }
 
@@ -333,6 +351,10 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         let resolvedMaxBound = max(minBound, maxBound)
         return min(max(value, minBound), resolvedMaxBound)
     }
+}
+
+private final class ScreenshotEditorHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 final class ScreenshotEditorWindow: NSWindow {

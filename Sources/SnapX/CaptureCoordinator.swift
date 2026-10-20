@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import os
 
 enum CaptureTimingMode: String, CaseIterable, Identifiable, Codable {
     case freezeFirst = "freezeFirst"
@@ -11,18 +12,18 @@ enum CaptureTimingMode: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .freezeFirst:
-            "先冻结"
+            "触发时冻结"
         case .liveSelect:
-            "先选择"
+            "选区确认时冻结"
         }
     }
 
     var description: String {
         switch self {
         case .freezeFirst:
-            "触发截图时立即冻结屏幕，在静止画面上框选和编辑"
+            "按下快捷键就固定画面，再框选。适合弹窗、菜单等临时内容。"
         case .liveSelect:
-            "先在实时画面上框选，确认后才捕获对应区域"
+            "实时框选，松开鼠标或单击确认后固定画面，再进入编辑。"
         }
     }
 
@@ -71,6 +72,18 @@ struct WindowCaptureSelection: Equatable {
     let ownerName: String
     let windowName: String?
 
+    func clipped(to displayBounds: CGRect) -> WindowCaptureSelection? {
+        let visible = bounds.intersection(displayBounds)
+        guard !visible.isNull, !visible.isEmpty else { return nil }
+        return WindowCaptureSelection(windowID: windowID, bounds: visible, ownerName: ownerName, windowName: windowName)
+    }
+
+    func screenSelection(displayID: CGDirectDisplayID, displayBounds: CGRect, scaleFactor: CGFloat) -> ScreenSelection? {
+        guard let visible = clipped(to: displayBounds) else { return nil }
+        return ScreenSelection(displayID: displayID,
+            rect: visible.bounds.offsetBy(dx: -displayBounds.minX, dy: -displayBounds.minY), scaleFactor: scaleFactor)
+    }
+
     var displayName: String {
         guard let windowName else { return ownerName }
 
@@ -101,6 +114,69 @@ final class CaptureCoordinator {
     private var displayHotKeyHint = "⌘⇧F"
     var captureTimingMode: CaptureTimingMode = .liveSelect
     private var frozenScreenImages: [CGDirectDisplayID: CGImage] = [:]
+    private var activeCaptureTimingMode: CaptureTimingMode?
+    private let captureLogger = Logger(subsystem: "com.wuqicheng.snapboard", category: "CaptureTiming")
+    private let captureDisplayImage: (CGDirectDisplayID) -> CGImage?
+    private let captureBelowWindow: (CGDirectDisplayID, CGWindowID) -> CGImage?
+
+    init(
+        captureDisplayImage: @escaping (CGDirectDisplayID) -> CGImage? = { CGDisplayCreateImage($0) },
+        captureBelowWindow: @escaping (CGDirectDisplayID, CGWindowID) -> CGImage? = { displayID, windowID in
+            CGWindowListCreateImage(CGDisplayBounds(displayID), .optionOnScreenBelowWindow, windowID, .bestResolution)
+        }
+    ) {
+        self.captureDisplayImage = captureDisplayImage
+        self.captureBelowWindow = captureBelowWindow
+    }
+
+    func prepareCapture(displayIDs: [CGDirectDisplayID]) -> Bool {
+        activeCaptureTimingMode = captureTimingMode
+        frozenScreenImages = [:]
+        if activeCaptureTimingMode == .freezeFirst {
+            return freezeDisplays(displayIDs)
+        }
+        return true
+    }
+
+    func freezeDisplays(_ displayIDs: [CGDirectDisplayID], belowWindows: [CGDirectDisplayID: CGWindowID] = [:]) -> Bool {
+        guard !displayIDs.isEmpty else { return false }
+        var images: [CGDirectDisplayID: CGImage] = [:]
+        for displayID in displayIDs {
+            guard displayID != 0 else { return false }
+            let image: CGImage?
+            if let windowID = belowWindows[displayID] {
+                // Keep the overlay on screen; composite only the windows beneath it.
+                image = captureBelowWindow(displayID, windowID)
+            } else {
+                image = captureDisplayImage(displayID)
+            }
+            guard let image else { return false }
+            images[displayID] = image
+        }
+        frozenScreenImages = images
+        return true
+    }
+
+    func imageForCapture(request: ScreenshotCaptureRequest) -> NSImage? {
+        guard activeCaptureTimingMode != nil else { return nil }
+        if activeCaptureTimingMode == .liveSelect && frozenScreenImages.isEmpty {
+            // The confirmation frame is the sole source for the crop, backdrop and later recrops.
+            let displayIDs: [CGDirectDisplayID]
+            switch request {
+            case let .area(selection), let .display(selection):
+                displayIDs = [selection.displayID]
+            case let .window(selection):
+                displayIDs = NSScreen.screens.filter { CGDisplayBounds($0.displayID).intersects(selection.bounds) }.map(\.displayID)
+            }
+            let belowWindows = Dictionary(uniqueKeysWithValues: overlayWindowControllers.compactMap { controller -> (CGDirectDisplayID, CGWindowID)? in
+                guard let window = controller.window else { return nil }
+                return (controller.screen.displayID, CGWindowID(window.windowNumber))
+            })
+            guard freezeDisplays(displayIDs, belowWindows: belowWindows) else { return nil }
+        }
+        return ScreenshotCapturer.cropFromFrozen(request: request, frozenImages: frozenScreenImages)
+    }
+
     private lazy var captureSound: NSSound? = {
         guard let url = Bundle.main.url(forResource: "capture", withExtension: "wav") else { return nil }
         return NSSound(contentsOf: url, byReference: true)
@@ -148,23 +224,24 @@ final class CaptureCoordinator {
     private func beginSelectionMode(for mode: CaptureSelectionMode) {
         guard overlayWindowControllers.isEmpty else { return }
 
-        if captureTimingMode == .freezeFirst {
+        // Freeze pixels and window geometry before any overlay takes focus.
+        let screens = NSScreen.screens
+        let frozenWindowInfo = captureTimingMode == .freezeFirst
+            ? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
+            : nil
+        guard prepareCapture(displayIDs: screens.map(\.displayID)) else {
+            cancelSelectionMode()
+            let alert = NSAlert()
+            alert.messageText = "无法冻结屏幕"
+            alert.informativeText = "未能保存所有屏幕的画面，本次截图已取消。请检查屏幕录制权限后重试。"
+            alert.addButton(withTitle: "好的")
+            alert.runModal()
+            return
+        }
+        if activeCaptureTimingMode == .freezeFirst {
             captureSound?.play()
         } else {
             selectCaptureSound?.play()
-        }
-
-        // In freeze-first mode, capture all screens before showing overlay
-        frozenScreenImages = [:]
-        let screens = NSScreen.screens
-        if captureTimingMode == .freezeFirst {
-            for screen in screens {
-                guard screen.displayID != 0,
-                      let cgImage = CGDisplayCreateImage(screen.displayID) else {
-                    continue
-                }
-                frozenScreenImages[screen.displayID] = cgImage
-            }
         }
 
         pushCrosshairCursor()
@@ -178,6 +255,7 @@ final class CaptureCoordinator {
                 mode: mode,
                 hotKeyHint: hotKeyHint,
                 frozenImage: frozenImage,
+                frozenWindowInfo: frozenWindowInfo,
                 captureHandler: { [weak self] request in
                     self?.finishCapture(with: request)
                 },
@@ -191,12 +269,16 @@ final class CaptureCoordinator {
         }
 
         NSApp.activate(ignoringOtherApps: true)
+        let targetOverlay = overlayWindowControllers.first { $0.screen.frame.contains(NSEvent.mouseLocation) }
+            ?? overlayWindowControllers.first
+        targetOverlay?.window?.makeKeyAndOrderFront(nil)
     }
 
     func cancelSelectionMode() {
         overlayWindowControllers.forEach { $0.close() }
         overlayWindowControllers.removeAll()
         frozenScreenImages = [:]
+        activeCaptureTimingMode = nil
         popCrosshairCursor()
     }
 
@@ -233,19 +315,13 @@ final class CaptureCoordinator {
     }
 
     private func finishCapture(with request: ScreenshotCaptureRequest) {
-        // In live-select mode, hide overlay before capturing so the
-        // semi-transparent overlay tint doesn't appear in the screenshot
-        if frozenScreenImages.isEmpty {
-            overlayWindowControllers.forEach { $0.window?.orderOut(nil) }
-            CATransaction.flush()
-            captureSound?.play()
-        }
-
-        let image: NSImage?
-        if frozenScreenImages.isEmpty {
-            image = ScreenshotCapturer.capture(request: request)
-        } else {
-            image = ScreenshotCapturer.cropFromFrozen(request: request, frozenImages: frozenScreenImages)
+        let captureStarted = CACurrentMediaTime()
+        let image = imageForCapture(request: request)
+        let frameReady = CACurrentMediaTime()
+        defer {
+            let captureMilliseconds = (frameReady - captureStarted) * 1000
+            let editorMilliseconds = (CACurrentMediaTime() - frameReady) * 1000
+            captureLogger.info("Confirmation frame: \(captureMilliseconds, privacy: .public) ms; editor preparation: \(editorMilliseconds, privacy: .public) ms")
         }
 
         guard let image else {
@@ -253,6 +329,14 @@ final class CaptureCoordinator {
             cancelSelectionMode()
             return
         }
+
+        // Hold the confirmation frame while the editor builds its first view hierarchy.
+        for controller in overlayWindowControllers {
+            if let frame = frozenScreenImages[controller.screen.displayID] {
+                controller.freeze(frame)
+            }
+        }
+        if activeCaptureTimingMode == .liveSelect { captureSound?.play() }
 
         // For area and window captures, provide the full screen image so the editor can re-crop on handle drag
         var fullScreenImage: NSImage?
@@ -272,27 +356,17 @@ final class CaptureCoordinator {
             }
 
         case let .window(selection):
-            let windowBounds = selection.bounds
-            let screens = NSScreen.screens
-            let desktopTopEdge = screens.map(\.frame.maxY).max() ?? 0
-            for screen in screens {
-                guard screen.displayID != 0 else {
-                    continue
-                }
-                let screenFrame = screen.frame
-                let windowCocoaY = desktopTopEdge - windowBounds.maxY
-                let localX = windowBounds.minX - screenFrame.minX
-                let localY = screenFrame.maxY - windowCocoaY - windowBounds.height
-                let localRect = CGRect(x: localX, y: localY, width: windowBounds.width, height: windowBounds.height)
-                let screenLocalBounds = CGRect(origin: .zero, size: screenFrame.size)
-                guard screenLocalBounds.intersects(localRect) else { continue }
+            for screen in NSScreen.screens {
+                guard screen.displayID != 0,
+                      let screenSelection = selection.screenSelection(displayID: screen.displayID,
+                        displayBounds: CGDisplayBounds(screen.displayID), scaleFactor: screen.backingScaleFactor) else { continue }
 
                 let result = resolveFullScreenImage(displayID: screen.displayID)
                 fullScreenImage = result.image
                 if let fullScreenImage {
                     cropInfo = ScreenshotEditorCropInfo(
                         fullScreenImage: fullScreenImage,
-                        selectionRect: localRect,
+                        selectionRect: screenSelection.rect,
                         displayID: screen.displayID,
                         scaleFactor: screen.backingScaleFactor
                     )
@@ -312,16 +386,13 @@ final class CaptureCoordinator {
         presentCapturedImage(image, request: request, cropInfo: cropInfo)
     }
 
-    private func resolveFullScreenImage(displayID: CGDirectDisplayID) -> (image: NSImage?, displayID: CGDirectDisplayID) {
+    func resolveFullScreenImage(displayID: CGDirectDisplayID) -> (image: NSImage?, displayID: CGDirectDisplayID) {
         let matchingScreen = NSScreen.screens.first { s in
             s.displayID == displayID
         }
         if let frozenCG = frozenScreenImages[displayID] {
             let screenSize = matchingScreen?.frame.size ?? CGSize(width: frozenCG.width, height: frozenCG.height)
             return (NSImage(cgImage: frozenCG, size: screenSize), displayID)
-        } else if let displayCG = CGDisplayCreateImage(displayID) {
-            let screenSize = matchingScreen?.frame.size ?? CGSize(width: displayCG.width, height: displayCG.height)
-            return (NSImage(cgImage: displayCG, size: screenSize), displayID)
         }
         return (nil, displayID)
     }
@@ -352,9 +423,9 @@ final class CaptureCoordinator {
         )
 
         screenshotEditorWindowController = controller
-        controller.showWindow(nil)
-        controller.window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
     }
 
     private func transitionSelectionOverlayToEditor(with image: NSImage, request: ScreenshotCaptureRequest, fullScreenImage: NSImage? = nil, cropInfo: ScreenshotEditorCropInfo? = nil) -> Bool {
@@ -369,6 +440,7 @@ final class CaptureCoordinator {
         }
         overlayWindowControllers.removeAll()
         frozenScreenImages = [:]
+        activeCaptureTimingMode = nil
 
         controllersToClose.forEach { $0.close() }
 
@@ -428,7 +500,7 @@ final class CaptureCoordinator {
     }
 
     private func cocoaGlobalRect(forWindowScreenRect rect: CGRect) -> CGRect {
-        let desktopTopEdge = NSScreen.screens.map(\.frame.maxY).max() ?? rect.maxY
+        let desktopTopEdge = NSScreen.screens.first?.frame.maxY ?? rect.maxY
         return CGRect(
             x: rect.minX,
             y: desktopTopEdge - rect.maxY,
@@ -546,40 +618,12 @@ enum ScreenshotCapturer {
 
     @MainActor
     private static func cropFrozenWindow(selection: WindowCaptureSelection, frozenImages: [CGDirectDisplayID: CGImage]) -> NSImage? {
-        // Find which screen contains this window
-        let windowBounds = selection.bounds
-
         for screen in NSScreen.screens {
             guard screen.displayID != 0,
-                  let fullImage = frozenImages[screen.displayID] else {
-                continue
-            }
-
-            let screenFrame = screen.frame
-            let scaleFactor = screen.backingScaleFactor
-
-            // Convert window bounds (CGWindowServer coords, top-left origin) to screen-local coords
-            let desktopTopEdge = NSScreen.screens.map(\.frame.maxY).max() ?? screenFrame.maxY
-            let windowCocoaY = desktopTopEdge - windowBounds.maxY
-            let localX = windowBounds.minX - screenFrame.minX
-            let localY = screenFrame.maxY - windowCocoaY - windowBounds.height
-
-            // Check if this window is on this screen
-            let localRect = CGRect(x: localX, y: localY, width: windowBounds.width, height: windowBounds.height)
-            let screenLocalBounds = CGRect(origin: .zero, size: screenFrame.size)
-            guard screenLocalBounds.intersects(localRect) else { continue }
-
-            let cropRect = CGRect(
-                x: localX * scaleFactor,
-                y: localY * scaleFactor,
-                width: windowBounds.width * scaleFactor,
-                height: windowBounds.height * scaleFactor
-            ).integral
-
-            guard let cropped = fullImage.cropping(to: cropRect) else { continue }
-            return NSImage(cgImage: cropped, size: windowBounds.size)
+                  let screenSelection = selection.screenSelection(displayID: screen.displayID,
+                    displayBounds: CGDisplayBounds(screen.displayID), scaleFactor: screen.backingScaleFactor) else { continue }
+            if let image = cropFrozenArea(selection: screenSelection, frozenImages: frozenImages) { return image }
         }
-
         return nil
     }
 }

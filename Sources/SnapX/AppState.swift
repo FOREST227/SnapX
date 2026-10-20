@@ -35,10 +35,10 @@ final class AppState: ObservableObject {
     }
 
     var dismissStatusPanel: (() -> Void)?
-    let updater = AppUpdater()
 
     private let captureCoordinator = CaptureCoordinator()
-    private var hotKeyMonitors: [GlobalHotKeyMonitor] = []
+    private var hotKeyMonitors: [CaptureShortcutAction: GlobalHotKeyMonitor] = [:]
+    private var isHotKeyRecordingActive = false
     private var settingsWindowController: SettingsWindowController?
     private var applicationDidBecomeActiveObserver: NSObjectProtocol?
     private var accessibilityPermissionMonitor: Timer?
@@ -93,7 +93,7 @@ final class AppState: ObservableObject {
     }
 
     func tearDown() {
-        hotKeyMonitors.forEach { $0.unregister() }
+        hotKeyMonitors.values.forEach { $0.unregister() }
         hotKeyMonitors.removeAll()
 
         if let applicationDidBecomeActiveObserver {
@@ -313,9 +313,32 @@ final class AppState: ObservableObject {
             throw HotKeyConfigurationError.duplicateShortcut(actionTitle: otherAction.title)
         }
 
+        // Register before committing: a conflicting shortcut must not replace the working one.
+        let previousMonitor = hotKeyMonitors.removeValue(forKey: action)
+        previousMonitor?.unregister()
+        let monitor = makeHotKeyMonitor(for: action, configuration: configuration)
+        switch monitor.register() {
+        case let .failed(status):
+            monitor.unregister()
+            if let previousMonitor {
+                _ = previousMonitor.register()
+                hotKeyMonitors[action] = previousMonitor
+            }
+            throw HotKeyConfigurationError.registrationFailed(status: status)
+        case .requiresAccessibilityPermission:
+            refreshAccessibilityPermissionStatus()
+        case .registered:
+            break
+        }
+
         setHotKeyConfiguration(configuration, for: action)
         saveHotKeyConfiguration(configuration, for: action)
-        registerHotKeys()
+        syncCaptureCoordinatorHotKeyHints()
+        if isHotKeyRecordingActive {
+            monitor.unregister()
+        } else {
+            hotKeyMonitors[action] = monitor
+        }
     }
 
     func resetHotKey(for action: CaptureShortcutAction) throws {
@@ -324,8 +347,9 @@ final class AppState: ObservableObject {
 
     /// 录制快捷键期间暂停全局快捷键，避免录制的组合键触发截图动作。
     func setHotKeyRecordingActive(_ active: Bool) {
+        isHotKeyRecordingActive = active
         if active {
-            hotKeyMonitors.forEach { $0.unregister() }
+            hotKeyMonitors.values.forEach { $0.unregister() }
             hotKeyMonitors.removeAll()
         } else {
             registerHotKeys()
@@ -344,29 +368,16 @@ final class AppState: ObservableObject {
     }
 
     private func registerHotKeys() {
-        hotKeyMonitors.forEach { $0.unregister() }
+        guard !isHotKeyRecordingActive else { return }
+        hotKeyMonitors.values.forEach { $0.unregister() }
         hotKeyMonitors.removeAll()
         syncCaptureCoordinatorHotKeyHints()
 
         var requiresAccessibilityPermission = false
         var registrationFailureStatus: OSStatus?
 
-        let definitions: [(CaptureShortcutAction, HotKeyConfiguration, @MainActor () -> Void)] = [
-            (.framed, framedHotKeyConfiguration, startFramedCapture),
-            (.display, displayHotKeyConfiguration, startDisplayCapture),
-            (.history, historyHotKeyConfiguration, openHistory),
-        ]
-
-        hotKeyMonitors = definitions.map { shortcutAction, configuration, action in
-            let monitor = GlobalHotKeyMonitor(
-                identifier: shortcutAction.hotKeyIdentifier,
-                keyCode: configuration.keyCode,
-                modifiers: configuration.modifiers
-            ) {
-                Task { @MainActor in
-                    action()
-                }
-            }
+        hotKeyMonitors = Dictionary(uniqueKeysWithValues: CaptureShortcutAction.allCases.map { action in
+            let monitor = makeHotKeyMonitor(for: action, configuration: hotKeyConfiguration(for: action))
             switch monitor.register() {
             case .registered:
                 break
@@ -377,8 +388,8 @@ final class AppState: ObservableObject {
             case let .failed(status):
                 registrationFailureStatus = status
             }
-            return monitor
-        }
+            return (action, monitor)
+        })
 
         if let registrationFailureStatus {
             presentAlert(
@@ -387,6 +398,20 @@ final class AppState: ObservableObject {
             )
         } else if requiresAccessibilityPermission {
             refreshAccessibilityPermissionStatus()
+        }
+    }
+
+    private func makeHotKeyMonitor(for action: CaptureShortcutAction, configuration: HotKeyConfiguration) -> GlobalHotKeyMonitor {
+        GlobalHotKeyMonitor(identifier: action.hotKeyIdentifier, keyCode: configuration.keyCode,
+                            modifiers: configuration.modifiers) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isHotKeyRecordingActive else { return }
+                switch action {
+                case .framed: self.startFramedCapture()
+                case .display: self.startDisplayCapture()
+                case .history: self.openHistory()
+                }
+            }
         }
     }
 

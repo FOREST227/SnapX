@@ -6,177 +6,314 @@ struct SettingsView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                themeSection
-                captureTimingModeSection
-                launchAtLoginSection
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("设置").font(.system(size: 20, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Text("SnapX").font(.system(size: 12, weight: .medium)).foregroundStyle(AppPanelStyle.secondaryText)
+                }
+                captureSection
                 shortcutSection
+                generalSection
+                permissionSection
+                Text("设置自动保存")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .frame(maxWidth: .infinity)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(AppPanelStyle.padding)
         }
-        .frame(minWidth: 430, idealWidth: 430, minHeight: 500, idealHeight: 580)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor).opacity(0.92),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .onAppear {
-            appState.refreshLaunchAtLoginState()
+        .frame(width: AppPanelStyle.width)
+        .frame(minHeight: 600, idealHeight: 800)
+        .background(AppPanelStyle.background)
+        .tint(AppPanelStyle.accent)
+        .onAppear(perform: refreshStatus)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshStatus()
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("设置")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-            Text("管理开机启动、截图模式和截图快捷键。")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var captureTimingModeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("截图模式", systemImage: "camera.viewfinder")
-                .font(.system(size: 15, weight: .semibold))
-
-            Text("选择触发截图时的行为方式。")
-                .font(.system(size: 12.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 12) {
+    private var captureSection: some View {
+        SettingsSection(title: "截图方式", detail: "选择画面固定的时刻") {
+            VStack(spacing: 10) {
                 ForEach(CaptureTimingMode.allCases) { mode in
-                    CaptureTimingModeButton(
-                        mode: mode,
-                        isSelected: appState.captureTimingMode == mode,
-                        action: { appState.captureTimingMode = mode }
-                    )
+                    CaptureTimingModeButton(mode: mode, isSelected: appState.captureTimingMode == mode) {
+                        appState.captureTimingMode = mode
+                    }
                 }
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var launchAtLoginSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("开机启动", systemImage: "power.circle")
-                .font(.system(size: 15, weight: .semibold))
-
-            HStack(alignment: .top, spacing: 16) {
-                Text("登录 macOS 时自动启动 SnapX")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { appState.isLaunchAtLoginEnabled },
-                        set: { appState.setLaunchAtLoginEnabled($0) }
-                    )
-                )
-                .toggleStyle(.switch)
-                .labelsHidden()
-            }
-
-            if !appState.launchAtLoginStatusMessage.isEmpty {
-                Text(appState.launchAtLoginStatusMessage)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var themeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("外观", systemImage: "paintbrush")
-                .font(.system(size: 15, weight: .semibold))
-
-            Text("选择应用界面主题，截图编辑器将跟随此设置。")
-                .font(.system(size: 12.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 12) {
-                ForEach(AppTheme.allCases) { theme in
-                    ThemeButton(
-                        theme: theme,
-                        isSelected: appState.currentTheme == theme,
-                        action: { appState.currentTheme = theme }
-                    )
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var shortcutSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("截图快捷键", systemImage: "keyboard")
-                .font(.system(size: 15, weight: .semibold))
-
-            Text("点击快捷键输入框后按下想要的组合键即可设定，例如 ⌘⇧S。支持字母、数字、F1–F20、方向键等；至少需要一个修饰键。修改后立即生效。")
-                .font(.system(size: 12.5))
-                .foregroundStyle(.secondary)
+        SettingsSection(title: "快捷键") {
+            VStack(spacing: 0) {
+                ForEach(CaptureShortcutAction.allCases) { action in
+                    HotKeyEditorRow(
+                        action: action,
+                        currentConfiguration: appState.hotKeyConfiguration(for: action),
+                        onSave: { try appState.updateHotKey(for: action, configuration: $0) },
+                        onReset: { try appState.resetHotKey(for: action) },
+                        onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
+                    )
+                    if action != CaptureShortcutAction.allCases.last { rowDivider }
+                }
+            }
+            .settingsGroup()
+            Text("点击按键框录入，至少包含一个修饰键。录入时全局快捷键暂停，Esc 取消。")
+                .font(.system(size: 12))
+                .lineSpacing(2)
+                .foregroundStyle(AppPanelStyle.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
-            HotKeyEditorCard(
-                action: .framed,
-                currentConfiguration: appState.framedHotKeyConfiguration,
-                onSave: { try appState.updateHotKey(for: .framed, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .framed) },
-                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
-            )
+    private var generalSection: some View {
+        SettingsSection(title: "通用") {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("外观")
+                    ThemeSegmentedControl(selection: $appState.currentTheme)
+                }
+                .padding(14)
+                rowDivider
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("登录时启动")
+                        Text(appState.launchAtLoginStatusMessage.isEmpty
+                             ? "登录 Mac 后自动运行 SnapX"
+                             : appState.launchAtLoginStatusMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppPanelStyle.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("登录时启动 SnapX", isOn: Binding(
+                        get: { appState.isLaunchAtLoginEnabled },
+                        set: { appState.setLaunchAtLoginEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+                .padding(14)
+            }
+            .font(.system(size: 13))
+            .settingsGroup()
+        }
+    }
 
-            HotKeyEditorCard(
-                action: .display,
-                currentConfiguration: appState.displayHotKeyConfiguration,
-                onSave: { try appState.updateHotKey(for: .display, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .display) },
-                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
-            )
+    private var permissionSection: some View {
+        SettingsSection(title: "权限") {
+            VStack(spacing: 0) {
+                PermissionSettingRow(title: "屏幕录制", detail: "用于截取屏幕内容",
+                    isGranted: appState.permissionStatus == .granted) {
+                    openPrivacySettings("Privacy_ScreenCapture")
+                }
+                rowDivider
+                PermissionSettingRow(title: "辅助功能", detail: "用于优先响应含 ⌘ 的全局快捷键",
+                    isGranted: appState.isAccessibilityPermissionGranted) {
+                    openPrivacySettings("Privacy_Accessibility")
+                }
+            }
+            .settingsGroup()
+            Text("授权后返回此页面，状态会自动刷新。")
+                .font(.system(size: 12))
+                .foregroundStyle(AppPanelStyle.secondaryText)
+        }
+    }
 
-            HotKeyEditorCard(
-                action: .history,
-                currentConfiguration: appState.historyHotKeyConfiguration,
-                onSave: { try appState.updateHotKey(for: .history, configuration: $0) },
-                onReset: { try appState.resetHotKey(for: .history) },
-                onRecordingChanged: { appState.setHotKeyRecordingActive($0) }
-            )
+    private var rowDivider: some View { Divider().padding(.horizontal, 14) }
+
+    private func refreshStatus() {
+        appState.refreshPermissionStates()
+        appState.refreshLaunchAtLoginState()
+    }
+
+    private func openPrivacySettings(_ anchor: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    var detail: String? = nil
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.system(size: 12, weight: .semibold))
+                if let detail {
+                    Text(detail).font(.system(size: 12)).foregroundStyle(AppPanelStyle.secondaryText)
+                }
+            }
+            content()
+        }
+    }
+}
+
+private extension View {
+    func settingsGroup() -> some View {
+        background(AppPanelStyle.groupFill, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+    }
+}
+
+private struct CaptureTimingModeButton: View {
+    let mode: CaptureTimingMode
+    let isSelected: Bool
+    let action: () -> Void
+
+    private var steps: [String] {
+        mode == .freezeFirst ? ["触发", "冻结", "框选"] : ["触发", "框选", "冻结"]
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text(mode.title).font(.system(size: 13, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? AppPanelStyle.accent : Color.secondary.opacity(0.5))
+                }
+                HStack(spacing: 6) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        Text(step)
+                            .font(.system(size: 11, weight: step == "冻结" ? .semibold : .regular))
+                            .foregroundStyle(AppPanelStyle.secondaryText)
+                        if index < steps.count - 1 {
+                            Image(systemName: "arrow.right").font(.system(size: 9)).foregroundStyle(AppPanelStyle.secondaryText)
+                        }
+                    }
+                }
+                .accessibilityHidden(true)
+                Text(mode.description)
+                    .font(.system(size: 12))
+                    .lineSpacing(2)
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? AppPanelStyle.selectionFill : AppPanelStyle.groupFill,
+                        in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isSelected ? AppPanelStyle.selectionBorder : Color.primary.opacity(0.1), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(mode.title)
+        .accessibilityValue(isSelected ? "已选中" : "未选中")
+        .accessibilityHint(mode.description)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+private struct ThemeSegmentedControl: View {
+    @Binding var selection: AppTheme
+    @FocusState private var focusedTheme: AppTheme?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(AppTheme.allCases) { theme in
+                Button { selection = theme } label: {
+                    Text(theme.displayName)
+                        .font(.system(size: 12, weight: selection == theme ? .semibold : .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
+                        .overlay(alignment: .bottom) {
+                            Capsule()
+                                .fill(selection == theme ? AppPanelStyle.accent : .clear)
+                                .frame(height: 2)
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 3)
+                        }
+                }
+                .buttonStyle(.plain)
+                .focused($focusedTheme, equals: theme)
+                .accessibilityValue(selection == theme ? "已选中" : "未选中")
+                .accessibilityAddTraits(selection == theme ? [.isSelected] : [])
+                if theme != AppTheme.allCases.last {
+                    Rectangle().fill(AppPanelStyle.controlBorder).frame(width: 0.5, height: 16)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+            .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("界面外观")
+        .onMoveCommand { direction in
+            let themes = AppTheme.allCases
+            guard let index = themes.firstIndex(of: focusedTheme ?? selection) else { return }
+            let next: Int
+            switch direction {
+            case .left: next = max(index - 1, 0)
+            case .right: next = min(index + 1, themes.count - 1)
+            default: return
+            }
+            selection = themes[next]
+            focusedTheme = themes[next]
+        }
+    }
+}
+
+private struct PermissionSettingRow: View {
+    let title: String
+    let detail: String
+    let isGranted: Bool
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title).font(.system(size: 13))
+                Spacer()
+                Label {
+                    Text(isGranted ? "已授权" : "未授权").foregroundStyle(.primary)
+                } icon: {
+                    Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+            HStack(spacing: 12) {
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(isGranted ? "管理" : "去授权", action: openSettings)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityLabel("在系统设置中管理\(title)权限")
+            }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
 /// 监听键盘输入，录制用户自定义的快捷键组合。同一时间只允许一个录制器工作。
 @MainActor
-private final class ShortcutRecorder: ObservableObject {
+final class ShortcutRecorder: ObservableObject {
     private static weak var activeRecorder: ShortcutRecorder?
 
     @Published private(set) var isRecording = false
 
     var onCapture: ((UInt32, HotKeyModifiers) -> Void)?
     var onCancel: (() -> Void)?
+    var onRecordingChanged: ((Bool) -> Void)?
 
     private var monitor: Any?
+    private var observers: [NSObjectProtocol] = []
 
     nonisolated init() {}
 
@@ -187,6 +324,21 @@ private final class ShortcutRecorder: ObservableObject {
         }
         Self.activeRecorder = self
         isRecording = true
+        onRecordingChanged?(true)
+        let window = NSApp?.keyWindow
+        for name in [NSApplication.didResignActiveNotification, NSWindow.willCloseNotification,
+                     NSWindow.didResignKeyNotification] {
+            let isAppNotification = name == NSApplication.didResignActiveNotification
+            guard isAppNotification || window != nil else { continue }
+            observers.append(NotificationCenter.default.addObserver(
+                forName: name, object: isAppNotification ? nil : window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.stop()
+                    self?.onCancel?()
+                }
+            })
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else {
                 // 录制器已释放时放行事件，避免遗留监视器吞掉按键。
@@ -201,26 +353,30 @@ private final class ShortcutRecorder: ObservableObject {
     }
 
     func stop() {
+        guard isRecording else { return }
         if let monitor {
             NSEvent.removeMonitor(monitor)
         }
         monitor = nil
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
         isRecording = false
         if Self.activeRecorder === self {
             Self.activeRecorder = nil
         }
+        onRecordingChanged?(false)
     }
 
-    private func handle(_ event: NSEvent) {
-        guard !event.isARepeat else { return }
+    func handle(_ event: NSEvent) {
+        guard isRecording, !event.isARepeat else { return }
 
-        if Int(event.keyCode) == kVK_Escape {
+        let modifiers = HotKeyModifiers(eventFlags: event.modifierFlags)
+        if Int(event.keyCode) == kVK_Escape && modifiers.isEmpty {
             stop()
             onCancel?()
             return
         }
 
-        let modifiers = HotKeyModifiers(eventFlags: event.modifierFlags)
         onCapture?(UInt32(event.keyCode), modifiers)
     }
 
@@ -240,7 +396,7 @@ private extension HotKeyModifiers {
     }
 }
 
-private struct HotKeyEditorCard: View {
+private struct HotKeyEditorRow: View {
     let action: CaptureShortcutAction
     let currentConfiguration: HotKeyConfiguration
     let onSave: (HotKeyConfiguration) throws -> Void
@@ -249,197 +405,121 @@ private struct HotKeyEditorCard: View {
 
     @StateObject private var recorder = ShortcutRecorder()
     @State private var errorMessage = ""
+    @State private var didSave = false
+    @State private var feedbackTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text(action.title)
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                if !recorder.isRecording {
-                    Text(currentConfiguration.displayString)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(action.title).font(.system(size: 13))
+                    ZStack(alignment: .leading) {
+                        Text("已生效").hidden()
+                        if recorder.isRecording {
+                            Text("录入中").foregroundStyle(AppPanelStyle.secondaryText)
+                        } else if didSave {
+                            Label {
+                                Text("已生效").foregroundStyle(AppPanelStyle.secondaryText)
+                            } icon: {
+                                Image(systemName: "checkmark").foregroundStyle(AppPanelStyle.success)
+                            }
+                        }
+                    }
+                    .font(.system(size: 11))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: toggleRecording) {
+                    Text(recorder.isRecording ? "请按组合键…" : currentConfiguration.displayString)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(width: 116, height: 32)
+                        .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+                        .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius).strokeBorder(
+                            recorder.isRecording ? AppPanelStyle.accent : AppPanelStyle.controlBorder,
+                            lineWidth: recorder.isRecording ? 2 : 0.5))
+                        .contentShape(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+                }
+                .buttonStyle(.plain)
+                .help("点击后按下新的组合键，Esc 取消")
+                .accessibilityLabel("设置\(action.title)快捷键")
+                .accessibilityValue(recorder.isRecording ? "等待按键" : currentConfiguration.displayString)
+
                 Button {
-                    toggleRecording()
+                    if recorder.isRecording { cancelRecording() } else { restoreDefaults() }
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: recorder.isRecording ? "record.circle.fill" : "keyboard")
-                        Text(recorder.isRecording ? "请按下快捷键…" : currentConfiguration.displayString)
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    }
-                    .frame(minWidth: 190, minHeight: 30)
+                    Image(systemName: recorder.isRecording ? "xmark" : "arrow.counterclockwise")
+                        .font(.system(size: 12))
+                        .frame(width: 26, height: 30)
                 }
-                .buttonStyle(.bordered)
-                .tint(recorder.isRecording ? .red : .accentColor)
-
-                if recorder.isRecording {
-                    Button("取消") {
-                        cancelRecording()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                Button("恢复默认") {
-                    restoreDefaults()
-                }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderless)
+                .foregroundStyle(AppPanelStyle.secondaryText)
+                .disabled(!recorder.isRecording && currentConfiguration == action.defaultConfiguration)
+                .opacity(!recorder.isRecording && currentConfiguration == action.defaultConfiguration ? 0.4 : 1)
+                .help(recorder.isRecording ? "取消录入" : "恢复默认快捷键")
+                .accessibilityLabel(recorder.isRecording ? "取消录入" : "恢复\(action.title)默认快捷键")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text("点击输入框后按下想要的组合键即可保存，Esc 取消。录制期间当前快捷键暂停生效。")
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             if !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                Label {
+                    Text(errorMessage).fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.circle").foregroundStyle(AppPanelStyle.error)
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(AppPanelStyle.secondaryText)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
-        .onChange(of: currentConfiguration) { _ in
-            if !recorder.isRecording {
-                errorMessage = ""
-            }
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .onDisappear {
-            if recorder.isRecording {
-                recorder.stop()
-                onRecordingChanged(false)
-            }
+            feedbackTask?.cancel()
+            recorder.stop()
         }
     }
 
     private func toggleRecording() {
-        if recorder.isRecording {
-            cancelRecording()
-            return
-        }
-
+        if recorder.isRecording { cancelRecording(); return }
+        feedbackTask?.cancel()
+        didSave = false
         errorMessage = ""
         recorder.onCapture = { keyCode, modifiers in
-            capture(keyCode: keyCode, modifiers: modifiers)
+            do {
+                try onSave(HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers))
+                recorder.stop()
+                showSavedFeedback()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
-        recorder.onCancel = {
-            errorMessage = ""
-            onRecordingChanged(false)
-        }
+        recorder.onCancel = { errorMessage = "" }
+        recorder.onRecordingChanged = onRecordingChanged
         recorder.start()
-        onRecordingChanged(true)
     }
 
     private func cancelRecording() {
         recorder.stop()
         errorMessage = ""
-        onRecordingChanged(false)
-    }
-
-    private func capture(keyCode: UInt32, modifiers: HotKeyModifiers) {
-        do {
-            try onSave(HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers))
-            errorMessage = ""
-            recorder.stop()
-            onRecordingChanged(false)
-        } catch {
-            // 保存失败时保持录制状态，方便直接重按组合键。
-            errorMessage = error.localizedDescription
-        }
     }
 
     private func restoreDefaults() {
-        if recorder.isRecording {
-            recorder.stop()
-            onRecordingChanged(false)
-        }
         do {
             try onReset()
-            errorMessage = ""
+            showSavedFeedback()
         } catch {
+            didSave = false
             errorMessage = error.localizedDescription
         }
     }
-}
 
-private struct ThemeButton: View {
-    let theme: AppTheme
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: theme.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
-
-                Text(theme.displayName)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
-            )
+    private func showSavedFeedback() {
+        errorMessage = ""
+        feedbackTask?.cancel()
+        didSave = true
+        feedbackTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            didSave = false
         }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct CaptureTimingModeButton: View {
-    let mode: CaptureTimingMode
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: mode.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
-
-                Text(mode.title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
-
-                Text(mode.description)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
     }
 }

@@ -6,7 +6,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     init(appState: AppState) {
         let hostingView = NSHostingView(rootView: SettingsView(appState: appState))
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 430, height: 500),
+            contentRect: CGRect(x: 0, y: 0, width: AppPanelStyle.width, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -17,7 +17,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.title = "SnapX 设置"
         window.titlebarAppearsTransparent = false
         window.isReleasedWhenClosed = false
-        window.minSize = CGSize(width: 430, height: 500)
+        window.contentMinSize = CGSize(width: AppPanelStyle.width, height: 600)
+        window.contentMaxSize = CGSize(width: AppPanelStyle.width, height: .greatestFiniteMagnitude)
         window.center()
         window.contentView = hostingView
         window.delegate = self
@@ -31,10 +32,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func present() {
         if let window {
-            var frame = window.frame
-            frame.size.width = max(frame.size.width, window.minSize.width)
-            frame.size.height = max(frame.size.height, window.minSize.height)
-            window.setFrame(frame, display: true)
+            let height = max(window.contentLayoutRect.height, 600)
+            window.setContentSize(CGSize(width: AppPanelStyle.width, height: height))
         }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

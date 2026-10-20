@@ -76,12 +76,15 @@ struct HotKeyConfiguration: Codable, Equatable {
 }
 
 enum HotKeyConfigurationError: LocalizedError {
+    case registrationFailed(status: OSStatus)
     case missingModifiers
     case unsupportedKey
     case duplicateShortcut(actionTitle: String)
 
     var errorDescription: String? {
         switch self {
+        case let .registrationFailed(status):
+            "这个组合键无法注册，可能已被系统或其他应用占用（错误代码：\(status)）。请换一个组合键，原设置已保留。"
         case .missingModifiers:
             "快捷键至少需要包含一个修饰键（⌘ / ⌥ / ⌃ / ⇧）。"
         case .unsupportedKey:

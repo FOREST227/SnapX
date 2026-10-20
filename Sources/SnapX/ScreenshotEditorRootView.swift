@@ -158,7 +158,8 @@ struct ScreenshotEditorRootView: View {
 
     private var imageStage: some View {
         ZStack(alignment: .topLeading) {
-            Color.clear
+            Image(nsImage: viewModel.image)
+                .resizable()
                 .frame(width: currentImageRect.width, height: currentImageRect.height)
 
             if let pixelatedPreviewImage = viewModel.pixelatedPreviewImage,

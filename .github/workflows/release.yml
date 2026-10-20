@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
+    paths:
+      - 'release/**/RELEASE.md'
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -24,11 +33,29 @@ jobs:
           echo "TOOLCHAINS=$TOOLCHAINS" >> "$GITHUB_ENV"
           swift --version
 
+      - name: Run regression tests
+        run: |
+          swift test
+          bash Tests/local_signing.sh
+          bash Tests/universal_build.sh
+
       - name: Extract version from tag
         id: version
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG#v}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+          else
+            VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Packaging/SnapX-Info.plist)
+            TAG="v$VERSION"
+          fi
+          if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            EXISTING_SHA=$(git rev-list -n 1 "$TAG")
+            if [[ "$EXISTING_SHA" != "$GITHUB_SHA" ]]; then
+              echo "Release tag $TAG already points to another commit; increment the version." >&2
+              exit 1
+            fi
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -38,20 +65,20 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           PLIST="Packaging/SnapX-Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
-          # Use tag number as build number (v0.1.0 -> 10, v1.2.3 -> 123)
+          # Use tag number as build number (v0.1.0 -> 100, v1.2.3 -> 10203)
           TAG="${{ steps.version.outputs.tag }}"
           BUILD_NUM=$(echo "${TAG#v}" | awk -F. '{print $1 * 10000 + $2 * 100 + $3}')
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" "$PLIST"
           echo "build_num=$BUILD_NUM" >> "$GITHUB_OUTPUT"
 
       - name: Build arm64
-        run: bash Scripts/build_app.sh arm64
+        run: SNAPX_SIGNING_MODE=adhoc bash Scripts/build_app.sh arm64
 
       - name: Build x86_64
-        run: bash Scripts/build_app.sh x86_64
+        run: SNAPX_SIGNING_MODE=adhoc bash Scripts/build_app.sh x86_64
 
       - name: Build universal
-        run: bash Scripts/build_app.sh universal
+        run: SNAPX_SIGNING_MODE=adhoc bash Scripts/build_app.sh universal
 
       - name: Create DMGs and ZIPs
         id: artifacts
@@ -102,82 +129,12 @@ jobs:
           echo "" >> /tmp/changelog.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}" >> /tmp/changelog.md
 
-      - name: Sign Sparkle and update appcast
-        id: sign
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          BUILD_NUM="${{ steps.plist.outputs.build_num }}"
-          UNIVERSAL_DMG="Build/SnapX-${TAG}-universal.dmg"
-          DMG_SIZE=$(stat -f%z "$UNIVERSAL_DMG" 2>/dev/null || echo "0")
-          SIG="PLACEHOLDER_SIGNATURE"
-
-          if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "$SPARKLE_PRIVATE_KEY" > /tmp/sparkle_key
-            SIGN_UPDATE="Vendor/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Versions/B/Resources/AutoUpdate"
-            if [ -f "$SIGN_UPDATE" ]; then
-              RAW_SIG=$("$SIGN_UPDATE" -s /tmp/sparkle_key "$UNIVERSAL_DMG" 2>/dev/null || true)
-              EXTRACTED=$(echo "$RAW_SIG" | grep -o 'sparkle:edSignature="[^"]*"' | sed 's/sparkle:edSignature="//;s/"//' || true)
-              [ -n "$EXTRACTED" ] && SIG="$EXTRACTED"
-            fi
-            rm -f /tmp/sparkle_key
-          fi
-
-          echo "signature=$SIG" >> "$GITHUB_OUTPUT"
-
-          # Update appcast.xml using Python
-          python3 -c "
-          import re
-          with open('docs/appcast.xml', 'r') as f:
-              content = f.read()
-
-          # Remove existing entry for this version if any
-          pattern = r'<item>\\s*<title>Version $VERSION</title>.*?</item>'
-          content = re.sub(pattern, '', content, flags=re.DOTALL)
-
-          item = '''        <item>
-              <title>Version $VERSION</title>
-              <sparkle:version>$BUILD_NUM</sparkle:version>
-              <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-              <description><![CDATA[
-                  <h3>更新内容</h3>
-                  <ul>
-                      <li>详见 Release Notes</li>
-                  </ul>
-              ]]></description>
-              <pubDate>$(date -R)</pubDate>
-              <enclosure
-                  url=\"https://github.com/${{ github.repository }}/releases/download/$TAG/SnapX-$TAG-universal.dmg\"
-                  sparkle:edSignature=\"$SIG\"
-                  length=\"$DMG_SIZE\"
-                  type=\"application/octet-stream\"
-                  sparkle:minimumSystemVersion=\"13.0\"
-              />
-          </item>'''
-
-          content = content.replace('<channel>', '<channel>\n' + item, 1)
-          with open('docs/appcast.xml', 'w') as f:
-              f.write(content)
-          print('Appcast updated for $TAG')
-          "
-
-      - name: Push appcast update
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/appcast.xml
-          git stash
-          git checkout main
-          git stash pop
-          git diff --cached --quiet || git commit -m "docs: 更新 appcast.xml 添加 ${{ steps.version.outputs.tag }}"
-          git push origin main
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: SnapX ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           body_path: /tmp/changelog.md
           files: |
             Build/SnapX-${{ steps.version.outputs.tag }}-arm64.dmg

@@ -60,7 +60,7 @@ final class GlobalHotKeyMonitor {
         let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, eventRef, userData in
-                guard let eventRef, let userData else { return noErr }
+                guard let eventRef, let userData else { return OSStatus(eventNotHandledErr) }
 
                 let monitor = Unmanaged<GlobalHotKeyMonitor>.fromOpaque(userData).takeUnretainedValue()
                 var pressedHotKeyID = EventHotKeyID()
@@ -78,7 +78,7 @@ final class GlobalHotKeyMonitor {
                 guard status == noErr,
                       pressedHotKeyID.signature == monitor.hotKeyID.signature,
                       pressedHotKeyID.id == monitor.hotKeyID.id else {
-                    return noErr
+                    return OSStatus(eventNotHandledErr)
                 }
 
                 monitor.handler()

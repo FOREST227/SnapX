@@ -212,6 +212,10 @@ struct ToolShortcutsOverlay: View {
                 shortcutItem(key: "6", tool: "画笔")
                 shortcutItem(key: "7", tool: "马赛克")
             }
+            HStack(spacing: 12) {
+                shortcutItem(key: "⌘Z", tool: "撤销")
+                shortcutItem(key: "⌘Y / ⇧⌘Z", tool: "重做")
+            }
         }
         .padding(16)
         .background(
@@ -237,7 +241,9 @@ struct ToolShortcutsOverlay: View {
             Text(key)
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .frame(width: 22, height: 22)
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .frame(minWidth: 22, minHeight: 22)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.white.opacity(0.2))

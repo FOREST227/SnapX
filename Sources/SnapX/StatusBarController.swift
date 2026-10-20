@@ -53,7 +53,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = CGSize(width: 320, height: 430)
+        popover.contentSize = CGSize(width: AppPanelStyle.width, height: 430)
     }
 
     private func showPopover() {

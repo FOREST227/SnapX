@@ -11,6 +11,7 @@ final class SelectionOverlayWindowController: NSWindowController {
         mode: CaptureSelectionMode,
         hotKeyHint: String,
         frozenImage: CGImage?,
+        frozenWindowInfo: [[String: Any]]?,
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
         cancelHandler: @escaping () -> Void
     ) {
@@ -40,6 +41,7 @@ final class SelectionOverlayWindowController: NSWindowController {
             mode: mode,
             hotKeyHint: hotKeyHint,
             frozenImage: frozenImage,
+            frozenWindowInfo: frozenWindowInfo,
             captureHandler: captureHandler,
             cancelHandler: cancelHandler
         )
@@ -55,6 +57,10 @@ final class SelectionOverlayWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func freeze(_ image: CGImage) {
+        (window?.contentView as? SelectionOverlayCanvasView)?.freeze(image)
     }
 
     func contains(globalRect: CGRect) -> Bool {
@@ -83,13 +89,15 @@ private struct HighlightedCaptureTarget: Equatable {
 private final class SelectionOverlayCanvasView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private let dragActivationDistance: CGFloat = 4
     private let screen: NSScreen
     private let mode: CaptureSelectionMode
     private let hotKeyHint: String
     private let dockDisplayName: String
-    private let frozenImage: CGImage?
+    private var frozenImage: CGImage?
+    private let frozenWindowInfo: [[String: Any]]?
     private let captureHandler: (ScreenshotCaptureRequest) -> Void
     private let cancelHandler: () -> Void
 
@@ -109,6 +117,7 @@ private final class SelectionOverlayCanvasView: NSView {
         mode: CaptureSelectionMode,
         hotKeyHint: String,
         frozenImage: CGImage?,
+        frozenWindowInfo: [[String: Any]]?,
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
         cancelHandler: @escaping () -> Void
     ) {
@@ -116,10 +125,11 @@ private final class SelectionOverlayCanvasView: NSView {
         self.mode = mode
         self.hotKeyHint = hotKeyHint
         self.frozenImage = frozenImage
+        self.frozenWindowInfo = frozenWindowInfo
         dockDisplayName = Self.resolveDockDisplayName()
         self.captureHandler = captureHandler
         self.cancelHandler = cancelHandler
-        desktopTopEdge = NSScreen.screens.map(\.frame.maxY).max() ?? screen.frame.maxY
+        desktopTopEdge = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
         super.init(frame: frameRect)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -128,6 +138,12 @@ private final class SelectionOverlayCanvasView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func freeze(_ image: CGImage) {
+        frozenImage = image
+        needsDisplay = true
+        displayIfNeeded()
     }
 
     override func viewDidMoveToWindow() {
@@ -509,7 +525,10 @@ private final class SelectionOverlayCanvasView: NSView {
         }
 
         let now = CACurrentMediaTime()
-        if cachedWindowInfoList == nil || (now - windowInfoCacheTime) >= windowInfoCacheInterval {
+        if let frozenWindowInfo {
+            // Even an empty snapshot must stay empty: never select a newly appeared live window.
+            cachedWindowInfoList = frozenWindowInfo
+        } else if cachedWindowInfoList == nil || (now - windowInfoCacheTime) >= windowInfoCacheInterval {
             let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
             cachedWindowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
             windowInfoCacheTime = now
@@ -522,7 +541,8 @@ private final class SelectionOverlayCanvasView: NSView {
         let currentProcessID = ProcessInfo.processInfo.processIdentifier
 
         for windowInfo in windowInfoList {
-            guard let selection = WindowCaptureSelection(windowInfo: windowInfo, excludingProcessID: currentProcessID) else {
+            guard let selection = WindowCaptureSelection(windowInfo: windowInfo, excludingProcessID: currentProcessID)?
+                .clipped(to: CGDisplayBounds(screen.displayID)) else {
                 continue
             }
 
