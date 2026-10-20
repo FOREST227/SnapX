@@ -199,7 +199,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     guard let self, !Task.isCancelled else { return }
                     self.extractionTask = nil
                     self.viewModel.isExtractingText = false
@@ -215,7 +215,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     guard let self, !Task.isCancelled else { return }
                     self.extractionTask = nil
                     self.viewModel.isExtractingText = false
