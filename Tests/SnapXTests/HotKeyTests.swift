@@ -6,9 +6,17 @@ import XCTest
 final class HotKeyTests: XCTestCase {
     func testAllRegisteredActionsReceiveTheirOwnEvents() throws {
         let received = Counter()
-        let monitors = (1...3).map { id in
-            GlobalHotKeyMonitor(identifier: UInt32(id), keyCode: id == 1 ? UInt32(kVK_ANSI_S) : UInt32(kVK_F17 + id),
-                                modifiers: id == 1 ? [.option] : [.control, .option, .shift]) {
+        let monitors: [GlobalHotKeyMonitor] = (1...3).map { (id: Int) -> GlobalHotKeyMonitor in
+            let keyCode: UInt32
+            let modifiers: HotKeyModifiers
+            if id == 1 {
+                keyCode = UInt32(kVK_ANSI_S)
+                modifiers = [.option]
+            } else {
+                keyCode = UInt32(kVK_F17 + id)
+                modifiers = [.control, .option, .shift]
+            }
+            return GlobalHotKeyMonitor(identifier: UInt32(id), keyCode: keyCode, modifiers: modifiers) {
                 received.append(id)
             }
         }
