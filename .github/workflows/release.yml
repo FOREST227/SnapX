@@ -113,21 +113,15 @@ jobs:
 
           echo "files=${OUTPUTS}" >> "$GITHUB_OUTPUT"
 
-      - name: Generate changelog
-        id: changelog
+      - name: Prepare release notes
         run: |
           TAG="${{ steps.version.outputs.tag }}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^${TAG}$" | tail -1)
-          if [ "$PREV_TAG" = "$TAG" ] || [ -z "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s" "$TAG")
-          else
-            COMMITS=$(git log --pretty=format:"- %s" "${PREV_TAG}..${TAG}")
+          NOTES="release/$TAG/RELEASE.md"
+          if [[ ! -f "$NOTES" ]]; then
+            echo "Missing release notes: $NOTES" >&2
+            exit 1
           fi
-
-          echo "## What's Changed" > /tmp/changelog.md
-          echo "$COMMITS" >> /tmp/changelog.md
-          echo "" >> /tmp/changelog.md
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}" >> /tmp/changelog.md
+          cp "$NOTES" /tmp/changelog.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
