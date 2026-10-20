@@ -1,207 +1,156 @@
-# SnapX
+<p align="center">
+  <img src="Packaging/AppIcon-master.png" width="96" alt="SnapX 应用图标">
+</p>
 
-一款常驻 macOS 菜单栏的原生截图工具。框选后直接在原位标注、复制、保存或钉住图片，也可以提取截图中的文字。
+<h1 align="center">SnapX</h1>
 
-[![macOS](https://img.shields.io/badge/macOS-13%2B-blue)](#系统要求)
-[![Swift](https://img.shields.io/badge/Swift-6.2%2B-orange)](#从源码构建)
-[![Release](https://img.shields.io/github/v/release/FOREST227/SnapX)](https://github.com/FOREST227/SnapX/releases/latest)
+<p align="center">截下来，标清楚，随手贴到需要的地方。</p>
 
-**[下载最新版本](https://github.com/FOREST227/SnapX/releases/latest)** · **[v0.2.0 更新说明](release/v0.2.0/RELEASE.md)** · **[反馈问题](https://github.com/FOREST227/SnapX/issues)**
+<p align="center">
+  <a href="https://github.com/FOREST227/SnapX/releases/latest"><img src="https://img.shields.io/github/v/release/FOREST227/SnapX" alt="最新版本"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-blue" alt="支持 macOS 13 及更新版本">
+</p>
 
-## 快速开始
+<p align="center">
+  <a href="https://github.com/FOREST227/SnapX/releases/latest"><strong>下载 SnapX</strong></a> ·
+  <a href="release/v0.2.0/RELEASE.md">看看这次更新了什么</a> ·
+  <a href="https://github.com/FOREST227/SnapX/issues">反馈问题</a>
+</p>
 
-1. 从 [Releases](https://github.com/FOREST227/SnapX/releases/latest) 下载适合你 Mac 的安装包，将 `SnapX.app` 放入“应用程序”文件夹。
-2. 启动 SnapX，在系统设置中授予屏幕录制权限；按提示配置辅助功能权限。
-3. 按 **⌘⇧S** 开始截图：单击高亮窗口，或拖动鼠标框选区域。
-4. 完成标注后按 **Enter** 或点击完成按钮复制截图，也可以选择保存、提取文字或钉图。
+SnapX 是一款常驻 Mac 菜单栏的截图工具。框选之后直接在原位画框、加箭头、写说明，再复制、保存或钉在桌面上。不必为了标注一张图，再打开另一个编辑器。
 
-SnapX 常驻菜单栏。点击菜单栏图标，可以调整钉图、打开历史或进入设置。
+<img src="docs/images/editor-preview.png" width="880" alt="SnapX 编辑器示例：在截图上添加红色线框和箭头，下方工具栏提供标注、OCR、保存、钉图和复制操作">
 
-## 截图方式
+*编辑界面预览，图中为演示内容。*
 
-支持自由框选、窗口可见区域截图和整屏截图。多屏环境下，可以单击目标显示器截取该屏幕；跨屏窗口按当前屏幕上的可见范围选取。
+## 你可以用它做什么
 
-在设置中选择画面固定的时机：
+- **🎯 截取需要的内容**：拖动框选、单击高亮窗口，或选择整块屏幕。多屏也能指定目标显示器。
+- **✍️ 把重点讲清楚**：线框、高亮、文字、箭头、直线、画笔和马赛克，支持标注撤销与重做。
+- **📌 留在眼前对照**：把图片钉在桌面上，调整透明度或开启鼠标穿透，方便边看边写。
+- **🔤 从图片里取文字**：识别简体中文、繁体中文和英文，将结果复制出来。
 
-| 截图方式 | 什么时候固定画面 | 使用场景 |
-| --- | --- | --- |
-| **触发时冻结** | 按下截图快捷键时保存画面，再在静止画面上框选 | 菜单、弹窗、视频画面等临时内容 |
-| **选区确认时冻结** | 在实时画面上选择，松开鼠标完成框选或单击确认窗口时保存画面 | 需要先确定范围再截图的日常操作 |
+截图完成后还可以保存为 PNG，或在历史记录中找回最近的截图。
 
-进入编辑后，选区、背景和再次调整选框都使用同一张画面，保存时不会重新截屏。“冻结”只表示固定截图画面，不会暂停其他应用。
+## 下载与安装
 
-## 标注与输出
+前往 **[下载页面](https://github.com/FOREST227/SnapX/releases/latest)**，按你的 Mac 选择安装包：
 
-编辑器提供七种工具，可以用数字键快速切换：
+| 你的 Mac | 选择的文件 |
+| --- | --- |
+| M 系列芯片 | 名称中带 `arm64` |
+| Intel 芯片 | 名称中带 `x86_64` |
+| 不确定，或希望两种 Mac 都能使用 | 名称中带 `universal` |
 
-| 按键 | 工具 | 用途 |
-| --- | --- | --- |
-| `1` | 线框 | 标出需要关注的区域 |
-| `2` | 高亮 | 突出文字或局部内容 |
-| `3` | 文字 | 添加说明，支持字号及粗体、斜体、下划线 |
-| `4` | 箭头 | 指向具体位置 |
-| `5` | 直线 | 分隔或连接内容 |
-| `6` | 画笔 | 自由绘制 |
-| `7` | 马赛克 | 遮挡图片中的信息 |
+建议下载 **DMG**，打开后将 `SnapX.app` 拖入“应用程序”文件夹。也提供 ZIP，解压后移动应用即可。需要 macOS 13（Ventura）或更新版本。
 
-框选后可拖动边框调整范围。建议先确定范围再标注：重新裁剪会清空当前标注。编辑完成后，可以：
+首次启动时，请按提示配置**屏幕录制**和**辅助功能**权限。应用启动后会出现在菜单栏。
 
-- **复制**：将结果放入剪贴板，直接粘贴到其他应用。
-- **保存**：保存为 PNG 到下载文件夹，按时间命名。
-- **提取文字**：使用 Apple Vision 识别简体中文、繁体中文和英文，并复制结果。
-- **钉住**：让图片浮动置顶，便于对照文档、代码或设计稿。
+> 安装包尚未经过 Apple 公证。如果系统提示无法验证开发者，请确认文件来自本仓库的下载页面，再到“系统设置 → 隐私与安全性”中允许打开。
 
-标注支持逐条撤销和重做。新增或修改标注后，旧的重做记录会清空；裁剪和选框调整暂不支持撤销、重做。
+## 第一次截图，只需三步
 
-## 快捷键
+1. 按 **⌘⇧S**，或点击菜单栏里的“框选截图”。
+2. **拖动鼠标**选一块区域，或**单击高亮窗口**选取它在当前屏幕上的可见部分。
+3. 按需要添加标注，再按 **Enter** 或点击 **✓** 复制；也可以点击保存、钉图或提取文字。
 
-### 全局快捷键
+建议先调整截图范围，再添加标注。重新裁剪会清空当前标注，裁剪操作暂不支持撤销。
+
+## 选择适合你的截图时机
+
+**想抓住一个菜单、弹窗或瞬间画面？**
+
+选择 **「触发时冻结」**：按下快捷键就保存画面，你可以慢慢框选。
+
+**想先看着实时画面确定范围？**
+
+选择 **「选区确认时冻结」**：松开鼠标完成框选，或单击确认窗口时，才固定画面。
+
+进入编辑后，选区、背景和再次调整范围都使用同一张图，最后保存时不会重新截屏。这里的“冻结”不会暂停其他应用。
+
+<details>
+<summary>查看截图方式与快捷键设置</summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-dark.png">
+  <img src="docs/images/settings-light.png" width="320" alt="SnapX 设置界面：选择冻结时机，并为框选截图、全屏截图和截图历史录入快捷键">
+</picture>
+
+支持跟随系统、浅色和深色外观。快捷键、登录时启动和权限入口都可以在设置中找到。
+
+</details>
+
+## 记住这几个快捷键就够了
 
 | 操作 | 默认快捷键 |
 | --- | --- |
-| 框选截图 | `⌘⇧S` |
-| 全屏截图 | `⌘⇧F` |
-| 截图历史 | `⌘⇧H` |
+| 框选截图 | **⌘⇧S** |
+| 全屏截图 | **⌘⇧F** |
+| 打开截图历史 | **⌘⇧H** |
+| 撤销一条标注 | **⌘Z** |
+| 重做标注 | **⌘Y** 或 **⇧⌘Z** |
+| 完成并复制 | **Enter** |
+| 取消当前操作／退出编辑 | **Esc** |
 
-在“设置 → 快捷键”中点击按键框，再按下新的组合键即可修改。支持字母、数字、F1–F20、方向键及部分符号、功能键；组合键至少需要一个修饰键。录入期间全局快捷键暂停，按 `Esc` 取消。注册失败时会显示错误并保留原设置。
+编辑时按 `1`–`7` 可以切换七种标注工具。正在输入文字时，部分按键由文字编辑器处理。
 
-### 截图编辑快捷键
+全局快捷键可以自定义：打开设置，点击按键框，再按下想要的组合键。录入期间全局快捷键暂停，按 `Esc` 取消；发生冲突时会提示原因并保留原设置。
 
-| 操作 | 快捷键 |
-| --- | --- |
-| 切换标注工具 | `1`–`7` |
-| 撤销标注 | `⌘Z` |
-| 重做标注 | `⌘Y` / `⇧⌘Z` |
-| 完成并复制 | `Enter` |
-| 取消当前操作或退出编辑 | `Esc` |
+## 用起来更顺手的小功能
 
-正在编辑文字时，部分按键会由文字编辑器处理。
+**图片钉在桌面上**
 
-## 钉图、历史与设置
+钉图支持 25%–100% 透明度和鼠标穿透，也能从菜单栏一键关闭所有钉图。适合对照参考图、操作步骤或资料。
 
-- **钉图**：支持 25%–100% 透明度、鼠标穿透，以及一键关闭所有钉图。
-- **历史**：保留最近 50 张截图，支持预览、多选和右键操作。
-- **外观**：跟随系统、浅色或深色；主面板和设置页使用统一配色。
-- **登录时启动**：从设置中开启，按 macOS 要求批准登录项。
-- **权限状态**：在设置中查看屏幕录制和辅助功能授权，并直接打开对应系统设置。
-- **崩溃日志**：下次启动时提示保存日志，方便定位问题。
+**最近的截图还能找回来**
 
-## 安装与更新
+历史记录最多保留 50 张截图，支持预览、多选和右键操作。
 
-### 选择安装包
+**随 Mac 登录自动启动**
 
-| 你的设备 | 文件名标识 |
-| --- | --- |
-| Apple Silicon（M 系列） | `arm64` |
-| Intel Mac | `x86_64` |
-| 希望同时兼容两种架构 | `universal` |
+在设置中开启“登录时启动”，需要时按 macOS 提示批准登录项。
 
-每种架构均提供 DMG 和 ZIP。DMG 挂载后拖入应用程序文件夹；ZIP 解压后将应用移入同一位置。
+## 常见问题
 
-### 首次打开与权限
+<details>
+<summary>快捷键按了没反应，怎么办？</summary>
 
-GitHub 发布包使用临时签名，未经过 Apple 公证。如果 macOS 提示无法验证开发者，请确认安装包来自本仓库 Releases，再在“系统设置 → 隐私与安全性”中允许打开。
+先确认 SnapX 正在运行，再到设置中检查权限状态和快捷键是否保存成功。尝试换一个不与其他应用冲突的组合键；含 ⌘ 的全局快捷键可能需要辅助功能权限。授权后如果系统要求重启应用，请退出后重新打开。
 
-- **屏幕录制**：用于获取屏幕画面。
-- **辅助功能**：用于增强含 `⌘` 的全局快捷键响应。
+</details>
 
-授权后返回 SnapX 检查状态；如果系统要求重启应用，请退出后重新打开。
+<details>
+<summary>截图后怎么保存成文件？</summary>
 
-### 手动更新
+点击编辑工具栏中的保存按钮。图片会以 PNG 格式保存到下载文件夹，并按时间命名。按 Enter 或点击 ✓ 则会复制到剪贴板。
 
-从 **v0.2.0** 起，SnapX 不再包含“检查更新”或后台自动更新。点击菜单中的“GitHub 发布页”，或访问 [Releases](https://github.com/FOREST227/SnapX/releases/latest) 下载新版；保存当前工作并退出旧版后再替换应用。
+</details>
 
-## 系统要求
+<details>
+<summary>如何更新到新版本？</summary>
 
-- macOS 13（Ventura）或更新版本。
-- 提供 Apple Silicon、Intel 和通用版构建。
-- 当前可用的完整应用为 macOS 版。`Windows/` 是适配中的工程骨架，不是与 macOS 版功能对等的正式版本，详见 [Windows 说明](Windows/README.md) 和 [迁移计划](docs/WINDOWS_PORTING.md)。
+从 v0.2.0 起，SnapX 不再内置自动更新。点击菜单中的“GitHub 发布页”，下载新版；保存当前工作并退出旧版后，再替换“应用程序”里的 SnapX。
 
-## 从源码构建
+不同签名身份之间切换，可能需要重新授予权限。如果你经常自己编译，可以使用[固定本机签名](docs/DEVELOPMENT.md#本机长期使用固定签名)。
 
-需要 **Swift 6.2+** 和相应 macOS SDK。建议安装完整 Xcode；构建脚本会优先使用 `/Applications/Xcode.app` 中的开发工具。macOS 主程序通过 Swift Package Manager 构建，无第三方包依赖。
+</details>
 
-```bash
-git clone https://github.com/FOREST227/SnapX.git
-cd SnapX
+<details>
+<summary>支持 Windows 吗？</summary>
 
-# 编译开发版本
-swift build
-```
+当前完整应用仅支持 macOS。Windows 版仍在适配中，仓库中的 Windows 工程尚未与 macOS 版功能对等，进展见 [Windows 说明](Windows/README.md)。
 
-### 本机长期使用：固定签名
+</details>
 
-```bash
-# 首次创建或复用本机代码签名证书
-bash Scripts/setup_local_signing.sh
+## 反馈与参与
 
-# 保存截图并退出 SnapX 后，构建、备份旧版、安装并启动
-bash Scripts/install_local.sh
-```
+遇到问题或有改进想法，欢迎[提交反馈](https://github.com/FOREST227/SnapX/issues)。附上 macOS 版本、芯片类型、SnapX 版本和复现步骤，会更容易定位；如附截图，请先遮挡私人信息。
 
-安装脚本默认选择当前 Mac 的架构，固定安装到 `/Applications/SnapX.app`。也可以只生成应用包：
+<details>
+<summary>我想从源码构建或参与开发</summary>
 
-```bash
-bash Scripts/build_app.sh arm64
-bash Scripts/build_app.sh x86_64
-bash Scripts/build_app.sh universal
-```
+需要 Swift 6.2+ 和 macOS SDK，建议使用完整 Xcode。macOS 主程序没有第三方包依赖。
 
-产物位于 `Build/SnapX-<架构>.app`；不传架构参数时默认生成通用版。
+完整的构建、固定签名、测试、项目结构和发布流程，请看 **[开发文档](docs/DEVELOPMENT.md)**。
 
-本机签名使用钥匙串中的 `SnapX Dev` 证书，公开证书与指纹保存在 `~/Library/Application Support/SnapX/Signing/`，私钥保存在登录钥匙串。脚本会复用同一身份；找不到原身份时直接报错，不会悄悄退回临时签名。
-
-切换签名后通常需要重新授权一次。之后复用同一证书、Bundle ID 和安装位置，可改善重复构建后的权限保留，但不能免除 macOS 自身要求的再次确认。请保留原证书和私钥；重新生成同名证书并不等于保留原身份。
-
-旧版安装备份保存在 `~/Library/Application Support/SnapX/InstallBackups/`。
-
-### 临时签名构建
-
-仅需生成与 GitHub 发布方式一致的临时签名包时，可显式指定：
-
-```bash
-SNAPX_SIGNING_MODE=adhoc bash Scripts/build_app.sh universal
-```
-
-GitHub 发布包不包含本机私钥。用临时签名包覆盖固定签名包，会改变应用签名身份，可能需要重新授权。
-
-### 运行测试
-
-```bash
-swift test
-bash Tests/local_signing.sh
-bash Tests/universal_build.sh
-
-# 已配置固定签名并生成 arm64 应用包后，可验证签名身份稳定性
-bash Tests/signing_identity.sh
-```
-
-Swift 测试包含快捷键、冻结与裁剪、首次点击、撤销重做、主题、布局和文字对比度检查；部分测试需要 macOS 图形会话。使用完整 Xcode 时，可通过 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 指定工具路径。
-
-## 项目结构
-
-| 路径 | 内容 |
-| --- | --- |
-| `Sources/SnapX/` | macOS 应用、截图流程、编辑器、菜单栏和设置 |
-| `Tests/` | Swift 回归测试与构建、签名脚本检查 |
-| `Scripts/` | 构建、本机签名、安装及辅助工具 |
-| `Packaging/` | 应用元数据、图标、音效和安装说明 |
-| `release/` | 各版本发布说明 |
-| `.github/workflows/` | 测试、构建和发布流程 |
-| `Windows/` | Windows 适配工程 |
-
-## 发布流程
-
-更新 `Packaging/SnapX-Info.plist` 的版本号，并新增 `release/v版本号/RELEASE.md`。将修改推送到 `main` 后，GitHub Actions 会执行测试，生成三种架构的 DMG／ZIP，并创建对应标签和 Release。工作流也支持推送版本标签或手动运行。
-
-如果目标版本标签已存在且指向不同提交，发布会停止；请提升版本号后再发布。
-
-## 反馈与贡献
-
-欢迎通过 [Issues](https://github.com/FOREST227/SnapX/issues) 反馈问题。请附上 macOS 版本、芯片类型、SnapX 版本、复现步骤，以及使用的截图方式。界面或显示问题可补充截图；分享前请遮挡私人信息。
-
-提交代码前请运行相关测试，并尽量让每个改动聚焦一个问题。
-
-## 许可证
-
-原项目说明标注为 MIT；当前仓库尚未附带独立的 `LICENSE` 文件。
+</details>
