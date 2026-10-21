@@ -13,10 +13,17 @@ final class HistoryZoomState: ObservableObject {
 struct HistoryImageViewer: NSViewRepresentable {
     let item: HistoryItem
     @ObservedObject var zoom: HistoryZoomState
+    var pinnedMode = false
     func makeNSView(context: Context) -> HistoryImageCanvas {
         let view = HistoryImageCanvas()
+        view.pinnedMode = pinnedMode
         view.zoomState = zoom
         zoom.canvas = view
+        if pinnedMode {
+            view.wantsLayer = true
+            view.layer?.cornerRadius = 6
+            view.layer?.masksToBounds = true
+        }
         view.setImage(item)
         return view
     }
@@ -26,12 +33,15 @@ struct HistoryImageViewer: NSViewRepresentable {
 /// A pixel-aware viewport: scale 1 means one image pixel per display pixel.
 final class HistoryImageCanvas: NSView {
     weak var zoomState: HistoryZoomState?
+    var pinnedMode = false
+    private var inset: CGFloat { pinnedMode ? 0 : 16 }
+    override var mouseDownCanMoveWindow: Bool { false }
     private var image: NSImage?
     private var imageID: UUID?
     private var pixelSize = CGSize(width: 1, height: 1)
     private(set) var scale: CGFloat = 1
     private(set) var fitted = true
-    private var pan = CGPoint.zero
+    private(set) var pan = CGPoint.zero
     private var dragOrigin: CGPoint?
     private var originalPan = CGPoint.zero
     override var acceptsFirstResponder: Bool { true }
@@ -39,7 +49,10 @@ final class HistoryImageCanvas: NSView {
     private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
     private var baseSize: CGSize { CGSize(width: pixelSize.width / backingScale, height: pixelSize.height / backingScale) }
     private var fitScale: CGFloat {
-        max(0.001, min(max(bounds.width - 32, 1) / baseSize.width, max(bounds.height - 32, 1) / baseSize.height))
+        let horizontal = max(bounds.width - inset * 2, 1) / baseSize.width
+        let vertical = max(bounds.height - inset * 2, 1) / baseSize.height
+        // Pins cover their fixed viewport; history previews show the whole image.
+        return max(0.001, pinnedMode ? max(horizontal, vertical) : min(horizontal, vertical))
     }
     private var imageRect: CGRect {
         let size = CGSize(width: baseSize.width * scale, height: baseSize.height * scale)
@@ -58,15 +71,33 @@ final class HistoryImageCanvas: NSView {
     }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        if fitted { fit() } else { clampPan(); needsDisplay = true }
+        updateViewport()
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if fitted { fit() }
+        if fitted && pan == .zero { fit() } else { updateViewport() }
     }
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if fitted { fit() } else { clampPan(); needsDisplay = true }
+        updateViewport()
+    }
+    private func updateViewport() {
+        if pinnedMode {
+            // Layout passes and viewport resizing must not silently recenter a pin.
+            let next = max(scale, fitScale)
+            let ratio = next / scale
+            pan.x *= ratio
+            pan.y *= ratio
+            scale = next
+            fitted = scale == fitScale
+            clampPan()
+            update()
+        } else if fitted {
+            fit()
+        } else {
+            clampPan()
+            update()
+        }
     }
     func fit() {
         fitted = true
@@ -75,8 +106,12 @@ final class HistoryImageCanvas: NSView {
         update()
     }
     func actualSize() {
-        fitted = false
+        if pinnedMode {
+            zoom(by: max(1, fitScale) / scale)
+            return
+        }
         scale = 1
+        fitted = false
         pan = .zero
         clampPan()
         update()
@@ -85,18 +120,19 @@ final class HistoryImageCanvas: NSView {
         guard factor.isFinite, factor > 0 else { return }
         let point = anchor ?? CGPoint(x: bounds.midX, y: bounds.midY)
         let old = imageRect
-        let next = min(max(scale * factor, min(0.01, fitScale)), max(20, fitScale))
+        let minimum = pinnedMode ? fitScale : min(0.01, fitScale)
+        let next = min(max(scale * factor, minimum), max(20, fitScale))
         let ratio = next / scale
         pan.x = point.x - bounds.midX - (point.x - old.midX) * ratio
         pan.y = point.y - bounds.midY - (point.y - old.midY) * ratio
         scale = next
-        fitted = false
+        fitted = pinnedMode && next == fitScale
         clampPan()
         update()
     }
     private func clampPan() {
-        let limitX = max(0, (baseSize.width * scale - bounds.width) / 2 + 16)
-        let limitY = max(0, (baseSize.height * scale - bounds.height) / 2 + 16)
+        let limitX = max(0, (baseSize.width * scale - bounds.width) / 2 + inset)
+        let limitY = max(0, (baseSize.height * scale - bounds.height) / 2 + inset)
         pan.x = min(max(pan.x, -limitX), limitX)
         pan.y = min(max(pan.y, -limitY), limitY)
     }
@@ -131,14 +167,16 @@ final class HistoryImageCanvas: NSView {
                 CGRect(x: CGFloat(column) * tile, y: CGFloat(row) * tile, width: tile, height: tile).fill()
             }
         }
-        NSGraphicsContext.current?.imageInterpolation = scale >= 1 ? .none : .high
+        NSGraphicsContext.current?.imageInterpolation = !pinnedMode && scale >= 1 ? .none : .high
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
         NSGraphicsContext.restoreGraphicsState()
         NSColor.separatorColor.setStroke()
         NSBezierPath(rect: rect).stroke()
     }
     override func scrollWheel(with event: NSEvent) {
-        if event.hasPreciseScrollingDeltas && !event.modifierFlags.contains(.command) {
+        // Precision alone also describes smooth/high-resolution mouse wheels.
+        let trackpadScroll = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+        if trackpadScroll {
             pan.x -= event.scrollingDeltaX
             pan.y += event.scrollingDeltaY
             clampPan(); update()
@@ -151,6 +189,13 @@ final class HistoryImageCanvas: NSView {
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if pinnedMode && event.modifierFlags.contains(.option) {
+            dragOrigin = nil
+            NSCursor.closedHand.push()
+            defer { NSCursor.pop() }
+            window?.performDrag(with: event)
+            return
+        }
         if event.clickCount == 2 {
             if fitted { actualSize() } else { fit() }
             return

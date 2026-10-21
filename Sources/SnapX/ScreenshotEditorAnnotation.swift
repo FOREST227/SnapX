@@ -79,7 +79,7 @@ enum ScreenshotAnnotationColor: String, CaseIterable, Identifiable {
     case yellow
     case blue
     case purple
-    case pink
+    case darkRed
     case white
     case black
 
@@ -93,7 +93,7 @@ enum ScreenshotAnnotationColor: String, CaseIterable, Identifiable {
         case .yellow: Color(nsColor: .systemYellow)
         case .blue: Color(nsColor: .systemBlue)
         case .purple: Color(nsColor: .systemPurple)
-        case .pink: Color(nsColor: .systemPink)
+        case .darkRed: Color(nsColor: nsColor)
         case .white: Color.white
         case .black: Color.black
         }
@@ -107,14 +107,14 @@ enum ScreenshotAnnotationColor: String, CaseIterable, Identifiable {
         case .yellow: .systemYellow
         case .blue: .systemBlue
         case .purple: .systemPurple
-        case .pink: .systemPink
+        case .darkRed: NSColor(srgbRed: 0.76, green: 0.22, blue: 0.26, alpha: 1)
         case .white: .white
         case .black: .black
         }
     }
 
     static var highlightColors: [ScreenshotAnnotationColor] {
-        [.yellow, .green, .orange, .red, .blue, .purple, .pink]
+        [.yellow, .green, .orange, .red, .blue, .purple, .darkRed]
     }
 }
 

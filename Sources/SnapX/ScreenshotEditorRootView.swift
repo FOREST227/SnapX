@@ -454,7 +454,7 @@ struct ScreenshotEditorRootView: View {
 
             toolbarDivider
 
-            toolbarButton(icon: "xmark", title: "关闭", isSelected: false) {
+            toolbarButton(icon: "xmark", title: "关闭", isSelected: false, destructive: true) {
                 discardDraftText()
                 onClose()
             }
@@ -552,6 +552,7 @@ struct ScreenshotEditorRootView: View {
         isSelected: Bool,
         isDisabled: Bool = false,
         accent: Bool = false,
+        destructive: Bool = false,
         usesMosaicIcon: Bool = false,
         usesHighlighterIcon: Bool = false,
         action: @escaping () -> Void
@@ -568,11 +569,11 @@ struct ScreenshotEditorRootView: View {
                 }
             }
                 .frame(width: 18, height: 18, alignment: .center)
-                .foregroundStyle(buttonForeground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
+                .foregroundStyle(buttonForeground(isSelected: isSelected, accent: accent || destructive, isDisabled: isDisabled))
                 .frame(width: 30, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(buttonBackground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
+                        .fill(destructive && !isDisabled ? ScreenshotAnnotationColor.red.swiftUIColor : buttonBackground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
                 )
         }
         .buttonStyle(.plain)

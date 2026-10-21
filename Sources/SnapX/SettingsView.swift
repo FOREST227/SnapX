@@ -220,47 +220,34 @@ private struct ThemeSegmentedControl: View {
     @Namespace private var selectionAnimation
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach(AppTheme.allCases) { theme in
                 Button { selection = theme } label: {
-                    Text(theme.displayName)
-                        .font(.system(size: 12, weight: selection == theme ? .semibold : .regular))
-                        .foregroundStyle(selection == theme ? AppPanelStyle.accent : Color.primary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .contentShape(Rectangle())
-                        .background {
-                            if selection == theme {
-                                RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius - 2)
-                                    .fill(AppPanelStyle.accent.opacity(0.10))
-                                    .matchedGeometryEffect(id: "themeSelection", in: selectionAnimation)
-                                    .padding(2)
-                            }
+                    HStack(spacing: 4) {
+                        Image(systemName: theme.icon).font(.system(size: 11, weight: .medium))
+                        Text(theme.displayName).font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(selection == theme ? AppPanelStyle.accent : AppPanelStyle.secondaryText)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
+                    .contentShape(Capsule())
+                    .background {
+                        if selection == theme {
+                            Capsule()
+                                .fill(AppPanelStyle.controlFill)
+                                .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "themeSelection", in: selectionAnimation)
                         }
-                        .overlay(alignment: .bottom) {
-                            if selection == theme {
-                                Capsule()
-                                    .fill(AppPanelStyle.accent)
-                                    .frame(height: 2)
-                                    .matchedGeometryEffect(id: "themeUnderline", in: selectionAnimation)
-                                    .padding(.horizontal, 12)
-                                    .padding(.bottom, 3)
-                            }
-                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .focused($focusedTheme, equals: theme)
                 .accessibilityValue(selection == theme ? "已选中" : "未选中")
                 .accessibilityAddTraits(selection == theme ? [.isSelected] : [])
-                if theme != AppTheme.allCases.last {
-                    Rectangle().fill(AppPanelStyle.controlBorder).frame(width: 0.5, height: 16)
-                        .accessibilityHidden(true)
-                }
             }
         }
-        .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
-            .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
+        .padding(3)
+        .background(Color.primary.opacity(0.055), in: Capsule())
         .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22), value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("界面外观")
@@ -421,6 +408,10 @@ private struct HotKeyEditorRow: View {
     @State private var didSave = false
     @State private var feedbackTask: Task<Void, Never>?
 
+    private var shortcutParts: [String] {
+        currentConfiguration.modifiers.symbolString.map { String($0) } + [HotKeyKey.label(for: currentConfiguration.keyCode)]
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -443,11 +434,21 @@ private struct HotKeyEditorRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: toggleRecording) {
-                    Text(recorder.isRecording ? "请按组合键…" : currentConfiguration.displayString)
+                    Group {
+                        if recorder.isRecording {
+                            Text("请按组合键…")
+                        } else {
+                            HStack(spacing: 6) {
+                                ForEach(Array(shortcutParts.enumerated()), id: \.offset) { _, part in
+                                    Text(part)
+                                }
+                            }
+                        }
+                    }
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(width: 116, height: 32)
+                        .frame(width: 116, height: 36)
                         .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
                         .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius).strokeBorder(
                             recorder.isRecording ? AppPanelStyle.accent : AppPanelStyle.controlBorder,
