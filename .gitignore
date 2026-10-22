@@ -13,3 +13,22 @@ __pycache__/
 
 # Local assistant permissions and machine-specific paths
 /.claude/
+
+# Local AI context and editor configuration
+/.impeccable.md
+/AGENTS.md
+/CLAUDE.md
+/.codex/
+/.cursor/
+/.agents/
+
+# Distributable installers belong in GitHub Releases
+*.dmg
+/release/**/*.zip
+*.app/
+
+# Windows build intermediates
+Windows/**/bin/
+Windows/**/obj/
+Windows/**/AppPackages/
+Windows/.vs/

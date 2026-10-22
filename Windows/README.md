@@ -34,7 +34,7 @@ Build/Windows/win-arm64
 
 ## Current Implementation State
 
-Implemented in this pass:
+Implemented components:
 
 - Windows solution and project structure.
 - Core models for capture, hotkeys, annotations, settings, history and file naming.
@@ -54,3 +54,13 @@ Still requiring Windows-machine implementation and validation:
 - Shell tray icon via `Shell_NotifyIcon`.
 - Pinned image topmost windows with mouse passthrough.
 - MSIX signing and install verification on real x86/x64/ARM64 targets.
+
+## Architecture
+
+The macOS app remains native Swift/AppKit/SwiftUI. The Windows implementation uses its own native host and platform services; it is not feature-complete and is not part of the macOS release build.
+
+The macOS capability interfaces are defined in [`PlatformContracts.swift`](../Sources/SnapX/PlatformContracts.swift). To inspect macOS-specific dependencies, run:
+
+```bash
+python3 Scripts/audit_platform_dependencies.py
+```

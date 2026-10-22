@@ -75,6 +75,12 @@ Swift 测试包含快捷键、冻结与裁剪、首次点击、撤销重做、�
 | `.github/workflows/` | 测试、构建和发布流程 |
 | `Windows/` | Windows 适配工程 |
 
+## 仓库内容约定
+
+仓库保留应用源码、测试、构建脚本、打包资源、用户与开发文档，以及版本更新说明。DMG、ZIP 等发布安装包放在 [GitHub Releases](https://github.com/FOREST227/SnapX/releases)，不重复提交到源码目录。
+
+本机 AI 工具配置、设计上下文和个人工作记录保持本地使用，不纳入版本控制。Windows 适配状态和构建方式集中记录在 [Windows/README.md](../Windows/README.md)。
+
 ## 发布流程
 
 更新 `Packaging/SnapX-Info.plist` 的版本号，并新增 `release/v版本号/RELEASE.md`。将修改推送到 `main` 后，GitHub Actions 会执行测试，生成三种架构的 DMG／ZIP，并创建对应标签和 Release。工作流也支持推送版本标签或手动运行。
