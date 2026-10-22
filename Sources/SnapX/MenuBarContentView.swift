@@ -167,9 +167,9 @@ struct MenuBarContentView: View {
                     Toggle("允许钉图鼠标穿透", isOn: mousePassthroughBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
-                        .accessibilityHint("开启后可点击钉图下方的窗口；关闭后恢复钉图交互。")
+                        .accessibilityHint("统一设置所有钉图的鼠标穿透；单张钉图可双击左上角图钉单独切换。")
                 }
-                Text("开启后可点击钉图下方的窗口。\n如需操作钉图，请在此关闭。")
+                Text("开启后可点击钉图下方的窗口。\n双击钉图左上角图钉可单独切换。")
                     .font(.system(size: 11.5))
                     .foregroundStyle(AppPanelStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -240,6 +240,8 @@ struct MenuBarContentView: View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: isGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
+                .help(isGranted ? "已授权" : "未授权")
+                .accessibilityLabel("\(title)\(isGranted ? "已授权" : "未授权")")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -251,12 +253,14 @@ struct MenuBarContentView: View {
 
             Spacer(minLength: 8)
 
-            Text(isGranted ? "已授权" : "未授权")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(AppPanelStyle.secondaryText)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(AppPanelStyle.groupFill, in: Capsule())
+            if !isGranted {
+                Text("未授权")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AppPanelStyle.warning)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(AppPanelStyle.groupFill, in: Capsule())
+            }
         }
     }
 }

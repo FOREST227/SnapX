@@ -92,7 +92,7 @@ final class SettingsLayoutTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 240, height: 160),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let content = NSView(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
+        let content = ThemeSnapshotSpyView(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
         let button = NSButton(frame: CGRect(x: 20, y: 20, width: 100, height: 30))
         content.addSubview(button)
         window.contentView = content
@@ -101,14 +101,92 @@ final class SettingsLayoutTests: XCTestCase {
         manager.currentTheme = .light
         manager.currentTheme = .dark
         manager.currentTheme = .light
-        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            let overlay = try XCTUnwrap(content.subviews.last)
-            XCTAssertFalse(overlay === button)
-            XCTAssertNil(overlay.hitTest(CGPoint(x: 40, y: 30)))
-        }
+        XCTAssertEqual(content.snapshotCount, 0, "Theme changes must not synchronously capture whole windows")
+        XCTAssertEqual(content.subviews.count, 1, "No old-page overlay may cover the updated selection")
         try await Task.sleep(nanoseconds: 700_000_000)
         XCTAssertEqual(content.subviews.count, 1)
         XCTAssertTrue(content.subviews.first === button)
+    }
+
+    @MainActor
+    func testSettingsUsesThinOverlayScrollerWithoutGutter() async throws {
+        _ = NSApplication.shared
+        let state = AppState()
+        let host = NSHostingView(rootView: SettingsView(appState: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close(); state.tearDown() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        func findScroll(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { findScroll($0) }.first
+        }
+        let scroll = try XCTUnwrap(findScroll(host))
+        XCTAssertEqual(scroll.scrollerStyle, .overlay)
+        XCTAssertEqual(scroll.verticalScroller?.controlSize, .small)
+        XCTAssertFalse(scroll.drawsBackground)
+        XCTAssertEqual(scroll.contentSize.width, scroll.bounds.width, accuracy: 1)
+        let document = try XCTUnwrap(scroll.documentView)
+        XCTAssertGreaterThan(document.bounds.height, scroll.contentSize.height)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: document.bounds.height - scroll.contentSize.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        XCTAssertGreaterThan(scroll.contentView.bounds.origin.y, 0)
+    }
+
+    @MainActor
+    func testSettingsTitlebarBlendsIntoContentAndRetainsWindowControls() throws {
+        _ = NSApplication.shared
+        let state = AppState()
+        let controller = SettingsWindowController(appState: state)
+        defer { controller.close(); state.tearDown() }
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertEqual(window.titlebarSeparatorStyle, .none)
+        XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(.closeButton)).isHidden)
+        XCTAssertFalse(try XCTUnwrap(window.standardWindowButton(.miniaturizeButton)).isHidden)
+        XCTAssertTrue(window.isMovable)
+    }
+
+    @MainActor
+    func testScrolledContentStaysBelowWindowButtons() async throws {
+        _ = NSApplication.shared
+        let state = AppState()
+        let controller = SettingsWindowController(appState: state)
+        defer { controller.close(); state.tearDown() }
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(NSSize(width: 320, height: 600))
+        let host = try XCTUnwrap(window.contentView)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 150_000_000)
+        func findScroll(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { findScroll($0) }.first
+        }
+        let scroll = try XCTUnwrap(findScroll(host))
+        let close = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        let buttonFrame = close.convert(close.bounds, to: nil)
+        for y: CGFloat in [0, 180, 400] {
+            scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            let viewport = scroll.convert(scroll.bounds, to: nil)
+            XCTAssertLessThanOrEqual(viewport.maxY, buttonFrame.minY - 4,
+                "The viewport itself must stay below the controls, even after scrolling")
+        }
+    }
+
+    @MainActor
+    func testShortcutErrorDetailsDoNotExpandIndicator() {
+        for message in ["组合键已被占用", String(repeating: "无法注册此快捷键，请选择其他组合。", count: 20)] {
+            let host = NSHostingView(rootView: ShortcutErrorIndicator(message: message, actionTitle: "框选截图", onReset: {}, onCancel: {}))
+            host.layoutSubtreeIfNeeded()
+            XCTAssertEqual(host.fittingSize.width, 26, accuracy: 0.5)
+            XCTAssertEqual(host.fittingSize.height, 30, accuracy: 0.5)
+        }
     }
 
     @MainActor
@@ -157,5 +235,13 @@ final class SettingsLayoutTests: XCTestCase {
             try XCTUnwrap(mainBitmap.representation(using: .png, properties: [:]))
                 .write(to: outputDirectory.appendingPathComponent("main-\(name).png"))
         }
+    }
+}
+
+private final class ThemeSnapshotSpyView: NSView {
+    var snapshotCount = 0
+    override func cacheDisplay(in rect: NSRect, to bitmapImageRep: NSBitmapImageRep) {
+        snapshotCount += 1
+        super.cacheDisplay(in: rect, to: bitmapImageRep)
     }
 }

@@ -4,24 +4,35 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var appState: AppState
+    var windowControlsInset: CGFloat = 0
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("设置").font(.system(size: 20, weight: .semibold, design: .rounded))
-                    Spacer()
-                }
-                captureSection
-                shortcutSection
-                generalSection
-                permissionSection
-                Text("设置自动保存")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
-                    .frame(maxWidth: .infinity)
+        VStack(spacing: 0) {
+            if windowControlsInset > 0 {
+                SettingsWindowDragArea()
+                    .frame(height: windowControlsInset)
+                    .accessibilityHidden(true)
             }
-            .padding(AppPanelStyle.padding)
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("设置").font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Spacer()
+                    }
+                    captureSection
+                    shortcutSection
+                    generalSection
+                    permissionSection
+                    Text("设置自动保存")
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppPanelStyle.secondaryText)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(AppPanelStyle.padding)
+                .background(SettingsScrollAppearance().allowsHitTesting(false).accessibilityHidden(true))
+            }
+            .modifier(SettingsPlainScrollEdges())
+            .clipped()
         }
         .frame(width: AppPanelStyle.width)
         .frame(minHeight: 600, idealHeight: 800)
@@ -235,7 +246,7 @@ private struct ThemeSegmentedControl: View {
                         if selection == theme {
                             Capsule()
                                 .fill(AppPanelStyle.controlFill)
-                                .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+                                .overlay(Capsule().strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
                                 .matchedGeometryEffect(id: "themeSelection", in: selectionAnimation)
                         }
                     }
@@ -266,6 +277,22 @@ private struct ThemeSegmentedControl: View {
     }
 }
 
+private struct SettingsNeutralButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+                .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5)
+    }
+}
+
 private struct PermissionSettingRow: View {
     let title: String
     let detail: String
@@ -277,13 +304,17 @@ private struct PermissionSettingRow: View {
             HStack {
                 Text(title).font(.system(size: 13))
                 Spacer()
-                Label {
-                    Text(isGranted ? "已授权" : "未授权").foregroundStyle(.primary)
-                } icon: {
-                    Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.circle")
-                        .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
+                if isGranted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppPanelStyle.success)
+                        .font(.system(size: 12, weight: .medium))
+                        .help("已授权")
+                        .accessibilityLabel("\(title)已授权")
+                } else {
+                    Label("未授权", systemImage: "exclamationmark.circle")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppPanelStyle.warning)
                 }
-                .font(.system(size: 12, weight: .medium))
             }
             HStack(spacing: 12) {
                 Text(detail)
@@ -292,7 +323,7 @@ private struct PermissionSettingRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Button(isGranted ? "管理" : "去授权", action: openSettings)
-                    .controlSize(.small)
+                    .buttonStyle(SettingsNeutralButtonStyle())
                     .fixedSize()
                     .accessibilityLabel("在系统设置中管理\(title)权限")
             }
@@ -305,6 +336,7 @@ private struct PermissionSettingRow: View {
 @MainActor
 final class ShortcutRecorder: ObservableObject {
     private static weak var activeRecorder: ShortcutRecorder?
+    static var isAnyRecording: Bool { activeRecorder?.isRecording == true }
 
     @Published private(set) var isRecording = false
 
@@ -405,38 +437,44 @@ private struct HotKeyEditorRow: View {
 
     @StateObject private var recorder = ShortcutRecorder()
     @State private var errorMessage = ""
+    @State private var inputDraft = ShortcutInputDraft()
     @State private var didSave = false
     @State private var feedbackTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var displayedConfiguration: HotKeyConfiguration {
+        inputDraft.displayed(over: currentConfiguration)
+    }
 
     private var shortcutParts: [String] {
-        currentConfiguration.modifiers.symbolString.map { String($0) } + [HotKeyKey.label(for: currentConfiguration.keyCode)]
+        displayedConfiguration.modifiers.symbolString.map { String($0) } + [HotKeyKey.label(for: displayedConfiguration.keyCode)]
+    }
+
+    private var shortcutAccessibilityValue: String {
+        if recorder.isRecording { return "等待按键" }
+        if !errorMessage.isEmpty {
+            return "未保存，\(displayedConfiguration.displayString)。当前生效：\(currentConfiguration.displayString)"
+        }
+        return (didSave ? "已保存，" : "") + currentConfiguration.displayString
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(action.title).font(.system(size: 13))
-                    ZStack(alignment: .leading) {
-                        Text("已生效").hidden()
-                        if recorder.isRecording {
-                            Text("录入中").foregroundStyle(AppPanelStyle.secondaryText)
-                        } else if didSave {
-                            Label {
-                                Text("已生效").foregroundStyle(AppPanelStyle.secondaryText)
-                            } icon: {
-                                Image(systemName: "checkmark").foregroundStyle(AppPanelStyle.success)
-                            }
-                        }
-                    }
-                    .font(.system(size: 11))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(action.title)
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
 
                 Button(action: toggleRecording) {
                     Group {
                         if recorder.isRecording {
                             Text("请按组合键…")
+                        } else if didSave {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(AppPanelStyle.success)
+                                .transition(reduceMotion ? .identity : .scale(scale: 0.85).combined(with: .opacity))
                         } else {
                             HStack(spacing: 6) {
                                 ForEach(Array(shortcutParts.enumerated()), id: \.offset) { _, part in
@@ -448,46 +486,58 @@ private struct HotKeyEditorRow: View {
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(width: 116, height: 36)
+                        .frame(width: 116, height: 30)
                         .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
-                        .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius).strokeBorder(
-                            recorder.isRecording ? AppPanelStyle.accent : AppPanelStyle.controlBorder,
-                            lineWidth: recorder.isRecording ? 2 : 0.5))
+                        .overlay {
+                            if !errorMessage.isEmpty {
+                                RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+                                    .strokeBorder(AppPanelStyle.warning, lineWidth: 1.5)
+                            } else if recorder.isRecording {
+                                ShortcutRecordingOutline()
+                            } else {
+                                RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+                                    .strokeBorder(didSave ? AppPanelStyle.success : AppPanelStyle.controlBorder,
+                                                  lineWidth: didSave ? 1.5 : 0.5)
+                            }
+                        }
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: didSave)
                         .contentShape(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
                 }
                 .buttonStyle(.plain)
-                .help("点击后按下新的组合键，Esc 取消")
+                .help("点击录入快捷键；Esc 取消录入或撤销无效输入")
                 .accessibilityLabel("设置\(action.title)快捷键")
-                .accessibilityValue(recorder.isRecording ? "等待按键" : currentConfiguration.displayString)
+                .accessibilityValue(shortcutAccessibilityValue)
 
-                Button {
-                    if recorder.isRecording { cancelRecording() } else { restoreDefaults() }
-                } label: {
-                    Image(systemName: recorder.isRecording ? "xmark" : "arrow.counterclockwise")
-                        .font(.system(size: 12))
-                        .frame(width: 26, height: 30)
+                Group {
+                    if !errorMessage.isEmpty {
+                        ShortcutErrorIndicator(message: errorMessage, actionTitle: action.title,
+                            onReset: restoreDefaults, onCancel: cancelRecording)
+                    } else {
+                        Button {
+                            if recorder.isRecording { cancelRecording() } else { restoreDefaults() }
+                        } label: {
+                            Image(systemName: recorder.isRecording ? "xmark" : "arrow.counterclockwise")
+                                .font(.system(size: 12))
+                                .frame(width: 26, height: 30)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(AppPanelStyle.secondaryText)
+                        .disabled(!recorder.isRecording && currentConfiguration == action.defaultConfiguration)
+                        .opacity(!recorder.isRecording && currentConfiguration == action.defaultConfiguration ? 0.4 : 1)
+                        .help(recorder.isRecording ? "取消录入" : "恢复默认快捷键")
+                        .accessibilityLabel(recorder.isRecording ? "取消录入" : "恢复\(action.title)默认快捷键")
+                    }
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(AppPanelStyle.secondaryText)
-                .disabled(!recorder.isRecording && currentConfiguration == action.defaultConfiguration)
-                .opacity(!recorder.isRecording && currentConfiguration == action.defaultConfiguration ? 0.4 : 1)
-                .help(recorder.isRecording ? "取消录入" : "恢复默认快捷键")
-                .accessibilityLabel(recorder.isRecording ? "取消录入" : "恢复\(action.title)默认快捷键")
-            }
-            if !errorMessage.isEmpty {
-                Label {
-                    Text(errorMessage).fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "exclamationmark.circle").foregroundStyle(AppPanelStyle.error)
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(AppPanelStyle.secondaryText)
+                .frame(width: 26, height: 30)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .background(ShortcutDraftEscapeHandler(enabled: !errorMessage.isEmpty, onCancel: cancelRecording)
+            .allowsHitTesting(false).accessibilityHidden(true))
         .onDisappear {
             feedbackTask?.cancel()
+            didSave = false
             recorder.stop()
         }
     }
@@ -497,28 +547,32 @@ private struct HotKeyEditorRow: View {
         feedbackTask?.cancel()
         didSave = false
         errorMessage = ""
+        inputDraft.cancel()
         recorder.onCapture = { keyCode, modifiers in
             do {
-                try onSave(HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers))
+                try inputDraft.submit(HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers), save: onSave)
                 recorder.stop()
                 showSavedFeedback()
             } catch {
+                recorder.stop()
+                didSave = false
                 errorMessage = error.localizedDescription
             }
         }
-        recorder.onCancel = { errorMessage = "" }
+        recorder.onCancel = { inputDraft.cancel(); errorMessage = "" }
         recorder.onRecordingChanged = onRecordingChanged
         recorder.start()
     }
 
     private func cancelRecording() {
         recorder.stop()
+        inputDraft.cancel()
         errorMessage = ""
     }
 
     private func restoreDefaults() {
         do {
-            try onReset()
+            try inputDraft.submit(action.defaultConfiguration) { _ in try onReset() }
             showSavedFeedback()
         } catch {
             didSave = false
@@ -531,9 +585,71 @@ private struct HotKeyEditorRow: View {
         feedbackTask?.cancel()
         didSave = true
         feedbackTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
             didSave = false
+        }
+    }
+}
+
+private struct ShortcutRecordingOutline: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+            .strokeBorder(AppPanelStyle.accent, lineWidth: 2)
+            .opacity(pulse && !reduceMotion ? 0.45 : 1)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+            .onAppear { pulse = !reduceMotion }
+            .onChange(of: reduceMotion) { pulse = !$0 }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// An error stays discoverable without inserting another row into the settings layout.
+struct ShortcutErrorIndicator: View {
+    let message: String
+    let actionTitle: String
+    let onReset: () -> Void
+    let onCancel: () -> Void
+    @State private var showsDetails = false
+
+    var body: some View {
+        Button { showsDetails.toggle() } label: {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(AppPanelStyle.warning)
+                .frame(width: 26, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(message)
+        .accessibilityLabel("查看\(actionTitle)快捷键错误")
+        .accessibilityValue(message)
+        .onDisappear { showsDetails = false }
+        .popover(isPresented: $showsDetails, arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("快捷键未更改", systemImage: "exclamationmark.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppPanelStyle.warning)
+                Text(message)
+                    .font(.system(size: 12))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("恢复默认") { showsDetails = false; onReset() }
+                    Spacer()
+                    Button("知道了") { showsDetails = false }
+                }
+                .buttonStyle(SettingsNeutralButtonStyle())
+            }
+            .padding(14)
+            .frame(width: 260)
+            .background(ShortcutDraftEscapeHandler(enabled: true) {
+                showsDetails = false
+                onCancel()
+            }.allowsHitTesting(false).accessibilityHidden(true))
         }
     }
 }

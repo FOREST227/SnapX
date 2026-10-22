@@ -4,10 +4,11 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     init(appState: AppState) {
-        let hostingView = NSHostingView(rootView: SettingsView(appState: appState))
+        let hostingView = NSHostingView(rootView: SettingsView(appState: appState, windowControlsInset: 36)
+            .ignoresSafeArea(.container, edges: .top))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: AppPanelStyle.width, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -15,7 +16,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
 
         window.title = "SnapX 设置"
-        window.titlebarAppearsTransparent = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
         window.contentMinSize = CGSize(width: AppPanelStyle.width, height: 600)
         window.contentMaxSize = CGSize(width: AppPanelStyle.width, height: .greatestFiniteMagnitude)
@@ -32,11 +35,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func present() {
         if let window {
-            let height = max(window.contentLayoutRect.height, 600)
+            let height = max(window.contentView?.bounds.height ?? 800, 600)
             window.setContentSize(CGSize(width: AppPanelStyle.width, height: height))
         }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+struct SettingsWindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> SettingsWindowDragView { SettingsWindowDragView() }
+    func updateNSView(_ view: SettingsWindowDragView, context: Context) {}
+}
+
+final class SettingsWindowDragView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
     }
 }

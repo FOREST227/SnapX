@@ -90,3 +90,14 @@ Swift 测试包含快捷键、冻结与裁剪、首次点击、撤销重做、�
 ## 许可说明
 
 原项目说明标注为 MIT；当前仓库尚未附带独立的 `LICENSE` 文件。
+
+## 重新生成应用图标
+
+`Packaging/AppIcon.svg` 是可编辑的图标源文件。安装 librsvg 后运行：
+
+```bash
+brew install librsvg
+python3 Scripts/generate_app_icon.py
+```
+
+脚本生成 README 使用的 PNG、全部 macOS iconset 尺寸与 `AppIcon.icns`。普通构建直接使用仓库中已生成的资源，不需要安装图标渲染工具。

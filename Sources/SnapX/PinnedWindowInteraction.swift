@@ -33,18 +33,24 @@ struct PinnedResizeEdges: OptionSet {
 }
 
 struct PinnedDragHandle: NSViewRepresentable {
+    var onTogglePassthrough: (() -> Void)? = nil
     func makeNSView(context: Context) -> PinnedDragHandleView { PinnedDragHandleView() }
-    func updateNSView(_ view: PinnedDragHandleView, context: Context) {}
+    func updateNSView(_ view: PinnedDragHandleView, context: Context) { view.onTogglePassthrough = onTogglePassthrough }
 }
 
 final class PinnedDragHandleView: NSView {
+    var onTogglePassthrough: (() -> Void)?
+    weak var movementWindow: NSWindow?
+    var passthroughActive = false { didSet { needsDisplay = true } }
+    private var dragStart: CGPoint?
+    private var windowOrigin = CGPoint.zero
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        toolTip = "按住拖动整个钉图"
+        toolTip = "按住拖动整个钉图；双击切换鼠标穿透"
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("移动钉图")
-        setAccessibilityHelp("按住鼠标左键拖动，移动整个钉图窗口")
+        setAccessibilityHelp("按住鼠标左键拖动窗口；双击开启或关闭鼠标穿透")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -52,16 +58,37 @@ final class PinnedDragHandleView: NSView {
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
     override func draw(_ dirtyRect: NSRect) {
         let image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(paletteColors: [.labelColor]))
+            .withSymbolConfiguration(.init(paletteColors: [passthroughActive ? .controlAccentColor : .labelColor]))
         let rect = CGRect(x: bounds.midX - 6, y: bounds.midY - 7, width: 12, height: 14)
         image?.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
     override func mouseDown(with event: NSEvent) {
         guard event.type == .leftMouseDown else { return }
+        if event.clickCount == 2 {
+            dragStart = nil
+            onTogglePassthrough?()
+            return
+        }
+        if let movementWindow, let eventWindow = window {
+            dragStart = eventWindow.convertPoint(toScreen: event.locationInWindow)
+            windowOrigin = movementWindow.frame.origin
+            NSCursor.closedHand.push()
+            return
+        }
         window?.makeKey()
         NSCursor.closedHand.push()
         defer { NSCursor.pop() }
         window?.performDrag(with: event)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStart, let movementWindow, let eventWindow = window else { return }
+        let point = eventWindow.convertPoint(toScreen: event.locationInWindow)
+        movementWindow.setFrameOrigin(CGPoint(x: windowOrigin.x + point.x - dragStart.x,
+                                             y: windowOrigin.y + point.y - dragStart.y))
+    }
+    override func mouseUp(with event: NSEvent) {
+        if dragStart != nil { NSCursor.pop() }
+        dragStart = nil
     }
 }
 
