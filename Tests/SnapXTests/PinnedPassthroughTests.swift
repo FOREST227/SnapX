@@ -9,6 +9,11 @@ final class PinnedPassthroughTests: XCTestCase {
         defer { controller.close() }
         controller.showWindow(nil)
         let window = try XCTUnwrap(controller.window)
+        // Production placement follows the pointer. Keep this geometry test away
+        // from the menu bar, where AppKit constrains upward moves on CI displays.
+        let visibleFrame = try XCTUnwrap(window.screen ?? NSScreen.main).visibleFrame
+        window.setFrameOrigin(CGPoint(x: visibleFrame.midX - window.frame.width / 2,
+                                      y: visibleFrame.midY - window.frame.height / 2))
         window.contentView?.layoutSubtreeIfNeeded()
         func findHandle(_ view: NSView) -> PinnedDragHandleView? {
             if let handle = view as? PinnedDragHandleView { return handle }
