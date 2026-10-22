@@ -20,10 +20,10 @@ struct SettingsView: View {
                         Spacer()
                     }
                     captureSection
-                    experimentalSection
                     shortcutSection
                     generalSection
                     permissionSection
+                    experimentalSection
                     Text("设置自动保存")
                         .font(.system(size: 12))
                         .foregroundStyle(AppPanelStyle.secondaryText)
