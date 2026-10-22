@@ -34,6 +34,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published var isEdgeSnappingEnabled: Bool {
+        didSet {
+            captureCoordinator.isEdgeSnappingEnabled = isEdgeSnappingEnabled
+            UserDefaults.standard.set(isEdgeSnappingEnabled, forKey: "experimentalEdgeSnapping")
+        }
+    }
+
     var dismissStatusPanel: (() -> Void)?
 
     private let captureCoordinator = CaptureCoordinator()
@@ -50,11 +57,13 @@ final class AppState: ObservableObject {
         displayHotKeyConfiguration = Self.loadHotKeyConfiguration(for: .display)
         historyHotKeyConfiguration = Self.loadHotKeyConfiguration(for: .history)
         currentTheme = ThemeManager.shared.currentTheme
+        isEdgeSnappingEnabled = UserDefaults.standard.bool(forKey: "experimentalEdgeSnapping")
 
         let savedMode = UserDefaults.standard.string(forKey: "captureTimingMode")
             .flatMap { CaptureTimingMode(rawValue: $0) } ?? .liveSelect
         captureTimingMode = savedMode
         captureCoordinator.captureTimingMode = savedMode
+        captureCoordinator.isEdgeSnappingEnabled = isEdgeSnappingEnabled
     }
 
     var framedHotKeyDisplay: String {

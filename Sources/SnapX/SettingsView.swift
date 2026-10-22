@@ -20,6 +20,7 @@ struct SettingsView: View {
                         Spacer()
                     }
                     captureSection
+                    experimentalSection
                     shortcutSection
                     generalSection
                     permissionSection
@@ -53,6 +54,32 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var experimentalSection: some View {
+        SettingsSection(title: "实验性功能") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Label("智能边缘吸附", systemImage: "viewfinder")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 0)
+                    Toggle("启用实验性智能边缘吸附", isOn: $appState.isEdgeSnappingEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+                Text("大致框选后，边缘靠近表格线或面板分隔线时自动贴合。按住 Option（⌥）可临时关闭吸附。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("默认关闭；识别可能不准。当前仅辅助拖动框选，不会自动选中整张表格。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .settingsGroup()
         }
     }
 
