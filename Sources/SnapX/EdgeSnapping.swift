@@ -26,7 +26,7 @@ struct EdgeSnapResult: Equatable {
 }
 
 enum EdgeSnapper {
-    static let tolerance: CGFloat = 6
+    static let tolerance: CGFloat = 10
 
     static func snap(_ rect: CGRect, to map: SnapEdgeMap, bypass: Bool = false) -> EdgeSnapResult {
         guard !bypass, rect.width >= 24, rect.height >= 24 else {
