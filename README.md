@@ -66,6 +66,17 @@ SnapX 是一款常驻 macOS 菜单栏的截图工具。选取屏幕上的一块�
 
 ## 界面展示
 
+### 菜单栏面板
+
+点击菜单栏中的 SnapX 图标，即可开始框选或全屏截图、打开截图历史，并查看权限状态。面板还提供钉图透明度和鼠标穿透控制，以及设置、更新下载和退出入口。
+
+<p align="center">
+  <img src="docs/images/menu-panel-light.png" width="320" alt="SnapX v0.5.0 浅色菜单栏面板实拍：权限状态、钉图控制和截图入口">
+  <img src="docs/images/menu-panel-dark.png" width="320" alt="SnapX v0.5.0 深色菜单栏面板实拍，与浅色采用相同布局">
+</p>
+
+**v0.5.0 实际截图**。完整保留原图中的窗口与阴影，仅扩展白色画布以统一尺寸、居中对齐。图中的 ⌥S 是自定义快捷键。
+
 ### 浅色与深色设置
 
 <p align="center">
