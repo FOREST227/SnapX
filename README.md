@@ -71,8 +71,8 @@ SnapX 是一款常驻 macOS 菜单栏的截图工具。选取屏幕上的一块�
 点击菜单栏中的 SnapX 图标，即可开始框选或全屏截图、打开截图历史，并查看权限状态。面板还提供钉图透明度和鼠标穿透控制，以及设置、更新下载和退出入口。
 
 <p align="center">
-  <img src="docs/images/menu-panel-light.png" width="320" alt="SnapX v0.5.0 浅色菜单栏面板实拍：权限状态、钉图控制和截图入口">
-  <img src="docs/images/menu-panel-dark.png" width="320" alt="SnapX v0.5.0 深色菜单栏面板实拍，与浅色采用相同布局">
+  <img src="docs/images/menu-panel-light-204f0c82.png" width="320" alt="SnapX v0.5.0 浅色菜单栏面板实拍：权限状态、钉图控制和截图入口">
+  <img src="docs/images/menu-panel-dark-956a82e2.png" width="320" alt="SnapX v0.5.0 深色菜单栏面板实拍，与浅色采用相同布局">
 </p>
 
 **v0.5.0 实际截图**。保留界面内容与窗口周围的自然阴影，清理背景横线和顶部指示箭头，并统一画布、居中对齐。图中的 ⌥S 是自定义快捷键。
@@ -80,11 +80,11 @@ SnapX 是一款常驻 macOS 菜单栏的截图工具。选取屏幕上的一块�
 ### 浅色与深色设置
 
 <p align="center">
-  <img src="docs/images/settings-light.png" width="320" alt="SnapX 浅色设置窗口实拍，展示截图时机和快捷键设置">
-  <img src="docs/images/settings-dark.png" width="320" alt="SnapX 深色设置窗口实拍，与浅色采用相同布局">
+  <img src="docs/images/settings-light-65656457.png" width="320" alt="SnapX 浅色设置窗口实拍，展示截图时机和快捷键设置">
+  <img src="docs/images/settings-dark-a9875528.png" width="320" alt="SnapX 深色设置窗口实拍，与浅色采用相同布局">
 </p>
 
-这两张是 **v0.3.2 已安装应用的实际截图**，保留窗口周围的自然阴影，清理扩展画布时产生的底部条带，并统一尺寸、居中对齐。v0.5.0 延续这一外观，并增加底部实验功能设置、调整说明文字；图中的 ⌥S 是自定义快捷键。
+浅色与深色设置的实际截图。仅裁去多余的纯白边缘并统一画布、居中对齐，原始界面、配色与自然阴影保持不变。
 
 ### 截图与原位编辑
 
