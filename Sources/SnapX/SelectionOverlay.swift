@@ -13,6 +13,7 @@ final class SelectionOverlayWindowController: NSWindowController {
         frozenImage: CGImage?,
         frozenWindowInfo: [[String: Any]]?,
         isEdgeSnappingEnabled: Bool = false,
+        edgeSnappingRange: CGFloat = CGFloat(EdgeSnapRange.defaultValue),
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
         cancelHandler: @escaping () -> Void
     ) {
@@ -44,6 +45,7 @@ final class SelectionOverlayWindowController: NSWindowController {
             frozenImage: frozenImage,
             frozenWindowInfo: frozenWindowInfo,
             isEdgeSnappingEnabled: isEdgeSnappingEnabled,
+            edgeSnappingRange: edgeSnappingRange,
             captureHandler: captureHandler,
             cancelHandler: cancelHandler
         )
@@ -104,8 +106,11 @@ final class SelectionOverlayCanvasView: NSView {
     private let mode: CaptureSelectionMode
     private let hotKeyHint: String
     private let isEdgeSnappingEnabled: Bool
+    private let edgeSnappingRange: CGFloat
     private let edgeAnalysis = EdgeSnapAnalysis()
     private var bypassSnapping = false
+    private var pointerPoint: CGPoint?
+    private var startingAnchor: SnapAnchor?
     private var confirmedSnapResult: EdgeSnapResult?
     private let dockDisplayName: String
     private var frozenImage: CGImage?
@@ -131,6 +136,7 @@ final class SelectionOverlayCanvasView: NSView {
         frozenImage: CGImage?,
         frozenWindowInfo: [[String: Any]]?,
         isEdgeSnappingEnabled: Bool = false,
+        edgeSnappingRange: CGFloat = CGFloat(EdgeSnapRange.defaultValue),
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
         cancelHandler: @escaping () -> Void
     ) {
@@ -138,6 +144,7 @@ final class SelectionOverlayCanvasView: NSView {
         self.mode = mode
         self.hotKeyHint = hotKeyHint
         self.isEdgeSnappingEnabled = isEdgeSnappingEnabled && mode == .framed
+        self.edgeSnappingRange = CGFloat(EdgeSnapRange.normalized(Double(edgeSnappingRange)))
         self.frozenImage = frozenImage
         self.frozenWindowInfo = frozenWindowInfo
         dockDisplayName = Self.resolveDockDisplayName()
@@ -147,7 +154,10 @@ final class SelectionOverlayCanvasView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        edgeAnalysis.onUpdate = { [weak self] in self?.needsDisplay = true }
+        edgeAnalysis.onUpdate = { [weak self] in
+            self?.updateStartingAnchor()
+            self?.needsDisplay = true
+        }
     }
 
     @available(*, unavailable)
@@ -168,8 +178,10 @@ final class SelectionOverlayCanvasView: NSView {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
         if window == nil { edgeAnalysis.stop() }
-        else if isEdgeSnappingEnabled, let image = frozenImage {
-            edgeAnalysis.start(size: bounds.size, continuous: false, image: { image })
+        else if isEdgeSnappingEnabled {
+            if let image = frozenImage {
+                edgeAnalysis.start(size: bounds.size, continuous: false, image: { image })
+            } else { startLiveEdgeAnalysis() }
         }
         refreshHoverState()
     }
@@ -199,9 +211,10 @@ final class SelectionOverlayCanvasView: NSView {
             isPointerInsideScreen = true
             confirmedSnapResult = nil
             bypassSnapping = event.modifierFlags.contains(.option)
-            if isEdgeSnappingEnabled && frozenImage == nil { startLiveEdgeAnalysis() }
             dragStartPoint = point
             dragCurrentPoint = point
+            startingAnchor = nil
+            updateStartingAnchor()
             isAreaSelectionActive = false
             updateHighlightedTarget(at: point)
 
@@ -228,6 +241,7 @@ final class SelectionOverlayCanvasView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        bypassSnapping = event.modifierFlags.contains(.option)
         let point = clampedPoint(for: event)
 
         switch mode {
@@ -271,7 +285,7 @@ final class SelectionOverlayCanvasView: NSView {
                 dragStartPoint = nil
                 dragCurrentPoint = nil
                 isAreaSelectionActive = false
-                if frozenImage == nil { edgeAnalysis.stop() }
+                startingAnchor = nil
                 needsDisplay = true
             }
 
@@ -424,6 +438,7 @@ final class SelectionOverlayCanvasView: NSView {
                 drawInstructionLabel()
             }
         }
+        if mode == .framed { drawAnchorPreview() }
     }
 
     private var rawAreaSelectionRect: CGRect? {
@@ -445,7 +460,51 @@ final class SelectionOverlayCanvasView: NSView {
         guard isEdgeSnappingEnabled, let map = edgeAnalysis.map else {
             return EdgeSnapResult(rect: raw, edges: [])
         }
-        return EdgeSnapper.snap(raw, to: map, bypass: bypassSnapping)
+        guard let start = dragStartPoint, let end = dragCurrentPoint else { return EdgeSnapResult(rect: raw, edges: []) }
+        return EdgeSnapper.snap(from: start, to: end, map: map, anchor: startingAnchor, bypass: bypassSnapping, tolerance: edgeSnappingRange)
+    }
+
+    private func updateStartingAnchor() {
+        guard isEdgeSnappingEnabled, let point = dragStartPoint, let map = edgeAnalysis.map else { return }
+        let candidate = EdgeSnapper.anchor(at: point, in: map, tolerance: edgeSnappingRange)
+        if startingAnchor == nil { startingAnchor = candidate }
+        else {
+            // Async analysis may arrive after the press. Fill missing axes, but do
+            // not change a chosen origin when the endpoint or detected span changes.
+            if startingAnchor?.vertical == nil { startingAnchor?.vertical = candidate.vertical }
+            if startingAnchor?.horizontal == nil { startingAnchor?.horizontal = candidate.horizontal }
+        }
+    }
+
+    var anchorPreviewPoint: CGPoint? {
+        guard isEdgeSnappingEnabled, !bypassSnapping, isPointerInsideScreen else { return nil }
+        if let result = snapResult, result.roundedRegion != nil,
+           let start = dragStartPoint, let end = dragCurrentPoint {
+            return CGPoint(x: end.x >= start.x ? result.rect.minX : result.rect.maxX,
+                           y: end.y >= start.y ? result.rect.minY : result.rect.maxY)
+        }
+        if let startingAnchor, startingAnchor.isSnapped { return startingAnchor.previewPoint }
+        guard let point = pointerPoint, let map = edgeAnalysis.map else { return nil }
+        let candidate = EdgeSnapper.anchor(at: point, in: map, tolerance: edgeSnappingRange)
+        return candidate.isSnapped ? candidate.previewPoint : nil
+    }
+
+    private func drawAnchorPreview() {
+        guard let point = anchorPreviewPoint, confirmedSnapResult == nil else { return }
+        let circle = NSBezierPath(ovalIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8))
+        NSColor.controlAccentColor.setFill()
+        circle.fill()
+        NSColor.white.setStroke()
+        circle.lineWidth = 1
+        circle.stroke()
+        let cross = NSBezierPath()
+        cross.move(to: CGPoint(x: point.x - 8, y: point.y))
+        cross.line(to: CGPoint(x: point.x + 8, y: point.y))
+        cross.move(to: CGPoint(x: point.x, y: point.y - 8))
+        cross.line(to: CGPoint(x: point.x, y: point.y + 8))
+        NSColor.controlAccentColor.setStroke()
+        cross.lineWidth = 1
+        cross.stroke()
     }
 
     private var areaSelectionRect: CGRect? { snapResult?.rect }
@@ -455,6 +514,7 @@ final class SelectionOverlayCanvasView: NSView {
         if bypassSnapping { return " · 自由框选" }
         if edgeAnalysis.isAnalyzing { return " · 边缘识别中 · ⌥ 自由框选" }
         if edgeAnalysis.map == nil { return " · 暂无可用边缘 · 自由框选" }
+        if snapResult?.roundedRegion != nil { return " · 圆角贴合 · ⌥ 自由框选" }
         return (snapResult?.edges.isEmpty == false ? " · 已吸附" : " · 吸附实验") + " · ⌥ 自由框选"
     }
 
@@ -584,6 +644,8 @@ final class SelectionOverlayCanvasView: NSView {
     }
 
     private func updateHighlightedTarget(at point: CGPoint) {
+        pointerPoint = point
+        if isEdgeSnappingEnabled { needsDisplay = true }
         let nextTarget = captureTarget(at: point)
         guard nextTarget != highlightedTarget else { return }
 

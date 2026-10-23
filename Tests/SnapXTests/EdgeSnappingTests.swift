@@ -5,6 +5,56 @@ import XCTest
 final class EdgeSnappingTests: XCTestCase {
     private let size = CGSize(width: 640, height: 400)
 
+    func testStartingCornerCanSnapBeforeThereIsASelection() {
+        let map = SnapEdgeMap(size: size, edges: [
+            SnapEdge(axis: .vertical, position: 40, start: 80, end: 220, strength: 1),
+            SnapEdge(axis: .horizontal, position: 80, start: 40, end: 560, strength: 1)
+        ])
+        let start = CGPoint(x: 43, y: 77)
+        let anchor = EdgeSnapper.anchor(at: start, in: map)
+        XCTAssertEqual(anchor.previewPoint, CGPoint(x: 40, y: 80))
+        let small = EdgeSnapper.snap(from: start, to: CGPoint(x: 55, y: 100), map: map, anchor: anchor)
+        XCTAssertEqual(small.rect.origin, CGPoint(x: 40, y: 80))
+        // A longer selection no longer has enough overlap with the left line;
+        // the starting anchor must nevertheless remain at the chosen corner.
+        let grown = EdgeSnapper.snap(from: start, to: CGPoint(x: 557, y: 398), map: map, anchor: anchor)
+        XCTAssertEqual(grown.rect.origin, CGPoint(x: 40, y: 80))
+    }
+
+    func testAnchorDoesNotJumpToAnUnrelatedSegmentAndRespectsRange() {
+        let map = SnapEdgeMap(size: size, edges: [
+            SnapEdge(axis: .vertical, position: 40, start: 200, end: 390, strength: 1),
+            SnapEdge(axis: .horizontal, position: 80, start: 40, end: 560, strength: 1)
+        ])
+        XCTAssertNil(EdgeSnapper.anchor(at: CGPoint(x: 43, y: 77), in: map).vertical)
+        XCTAssertFalse(EdgeSnapper.anchor(at: CGPoint(x: 60, y: 60), in: map).isSnapped)
+    }
+
+    func testAnchorSupportsReverseDragAndOptionRestoresRawStart() {
+        let map = SnapEdgeMap(size: size, edges: [
+            SnapEdge(axis: .vertical, position: 560, start: 80, end: 220, strength: 1),
+            SnapEdge(axis: .horizontal, position: 220, start: 40, end: 560, strength: 1)
+        ])
+        let start = CGPoint(x: 556, y: 224), end = CGPoint(x: 43, y: 77)
+        let anchor = EdgeSnapper.anchor(at: start, in: map)
+        let result = EdgeSnapper.snap(from: start, to: end, map: map, anchor: anchor)
+        XCTAssertEqual(result.rect.maxX, 560)
+        XCTAssertEqual(result.rect.maxY, 220)
+        let bypassed = EdgeSnapper.snap(from: start, to: end, map: map, anchor: anchor, bypass: true)
+        XCTAssertEqual(bypassed.rect, CGRect(x: 43, y: 77, width: 513, height: 147))
+        XCTAssertTrue(bypassed.edges.isEmpty)
+    }
+
+    func testLongLowContrastPanelBoundaryCanAnchorButShortDetailsCannot() throws {
+        let frame = try image(scale: 1) { x, _ in x < 180 ? 34 : 22 }
+        let map = SnapEdgeDetector.detect(frame, logicalSize: size)
+        XCTAssertEqual(EdgeSnapper.anchor(at: CGPoint(x: 185, y: 100), in: map).previewPoint.x, 180, accuracy: 1)
+        let details = SnapEdgeDetector.detect(try image(scale: 1) { x, y in
+            (100..<150).contains(x) && (100..<130).contains(y) ? 34 : 22
+        }, logicalSize: size)
+        XCTAssertTrue(details.edges.isEmpty)
+    }
+
     func testRoughSelectionSnapsToFourTableBorders() throws {
         let map = SnapEdgeDetector.detect(try tableImage(scale: 1), logicalSize: size)
         let result = EdgeSnapper.snap(CGRect(x: 43, y: 77, width: 513, height: 147), to: map)

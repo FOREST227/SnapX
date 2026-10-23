@@ -36,11 +36,11 @@ enum ScreenshotEditorTool: String, CaseIterable, Identifiable {
         case .rectangle:
             "线框"
         case .highlight:
-            "高亮"
+            "荧光笔"
         case .text:
             "文字"
         case .arrow:
-            "箭头"
+            "弧线箭头"
         case .line:
             "直线"
         case .pen:
@@ -140,11 +140,12 @@ struct RectangleAnnotation {
     let lineStyle: RectangleLineStyle
 }
 
-struct HighlightAnnotation {
+struct HighlightAnnotation: Identifiable {
     let id = UUID()
-    let rect: CGRect
+    var points: [CGPoint]
     let color: ScreenshotAnnotationColor
     let opacity: CGFloat
+    let brushSize: CGFloat
 }
 
 struct ArrowAnnotation {
@@ -153,6 +154,7 @@ struct ArrowAnnotation {
     let end: CGPoint
     let color: ScreenshotAnnotationColor
     let lineWidth: CGFloat
+    var controlPoint: CGPoint? = nil
 }
 
 struct LineAnnotation {
@@ -213,6 +215,7 @@ enum ScreenshotEditorAnnotation: Identifiable {
 struct DraftArrow {
     let start: CGPoint
     let end: CGPoint
+    var controlPoint: CGPoint? = nil
 }
 
 struct DraftLine {

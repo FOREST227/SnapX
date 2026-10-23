@@ -170,8 +170,7 @@ struct MenuBarContentView: View {
                         .accessibilityHint("统一设置所有钉图的鼠标穿透；单张钉图可双击左上角图钉单独切换。")
                 }
                 Text("开启后可点击钉图下方的窗口。\n双击钉图左上角图钉可单独切换。")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .panelDescription(size: 11.5)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -214,7 +213,7 @@ struct MenuBarContentView: View {
     private var footer: some View {
         HStack {
             Text("当前钉图 \(appState.pinnedCount) 张")
-                .font(.system(size: 12.5, weight: .semibold))
+                .panelDescription(size: 12.5)
             Spacer()
             Text("v\(appVersion)")
                 .font(.system(size: 11, weight: .medium))
@@ -247,8 +246,7 @@ struct MenuBarContentView: View {
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
                 Text(isGranted ? grantedDetail : missingDetail)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .panelDescription(size: 11.5)
             }
 
             Spacer(minLength: 8)

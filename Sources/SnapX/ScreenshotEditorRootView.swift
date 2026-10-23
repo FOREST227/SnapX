@@ -90,8 +90,9 @@ struct ScreenshotEditorRootView: View {
     let onExtractText: () -> Void
 
     @State private var draftRectangle: CGRect?
-    @State private var draftHighlight: CGRect?
+    @State private var draftHighlight: HighlightAnnotation?
     @State private var draftArrow: DraftArrow?
+    @State private var draftArrowPoints: [CGPoint] = []
     @State private var draftLine: DraftLine?
     @State private var draftPenPoints: [CGPoint] = []
     @State private var draftMosaicPoints: [CGPoint] = []
@@ -212,11 +213,14 @@ struct ScreenshotEditorRootView: View {
                     let buttonRect = geometry[anchor]
                     let left = min(max(buttonRect.minX, 12), max(12, geometry.size.width - 220 - 12))
                     toolOptionsBubble(arrowOffset: min(max(buttonRect.midX - left - 6, 8), 200))
-                        .position(x: left + 110, y: buttonRect.maxY + 8 + 48)
+                        .position(x: left + 110, y: buttonRect.maxY + 8 + toolOptionsHeight / 2)
                 }
             }
         }
         .onChange(of: viewModel.activeTool) { _ in
+            draftHighlight = nil
+            draftArrow = nil
+            draftArrowPoints = []
             commitTextDraftIfNeeded()
         }
         .onChange(of: viewModel.textDraftDiscardRequest) { shouldDiscard in
@@ -263,20 +267,37 @@ struct ScreenshotEditorRootView: View {
                     )
             }
 
-            annotationOverlay
+            ZStack(alignment: .topLeading) {
+                ForEach(viewModel.annotations.compactMap { annotation -> HighlightAnnotation? in
+                    if case let .highlight(stroke) = annotation { return stroke }
+                    return nil
+                }) { stroke in
+                    HighlighterStrokeView(stroke: stroke, scale: currentDisplayScale)
+                }
+                if let draftHighlight {
+                    HighlighterStrokeView(stroke: draftHighlight, scale: currentDisplayScale)
+                }
+            }
+            .frame(width: currentImageRect.width, height: currentImageRect.height)
+            .clipped()
+            .allowsHitTesting(false)
 
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(dragGesture)
-                .simultaneousGesture(
-                    SpatialTapGesture(count: 2).exclusively(before: SpatialTapGesture())
-                        .onEnded { value in
-                            switch value {
-                            case .first(let tap): handleTextTap(at: tap.location, doubleClick: true)
-                            case .second(let tap): handleTextTap(at: tap.location, doubleClick: false)
-                            }
-                        }
+            annotationOverlay.clipped()
+
+            if viewModel.activeTool == .text {
+                EditorTextInteraction(
+                    onTap: { point, doubleClick in handleTextTap(at: point, doubleClick: doubleClick) },
+                    onDrag: { start, current in updateTextDrag(from: start, to: current) },
+                    onDragEnd: { finishTextDrag() }
                 )
+            } else {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(dragGesture)
+                    .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in
+                        handleTextTap(at: tap.location, doubleClick: true)
+                    })
+            }
 
             if let index = selectedTextIndex, editingTextIndex == nil,
                case let .text(text) = viewModel.annotations[safe: index] {
@@ -289,6 +310,11 @@ struct ScreenshotEditorRootView: View {
 
             if let draftTextOrigin {
                 draftTextEditor(at: draftTextOrigin)
+            }
+        }
+        .overlay {
+            if let scan = viewModel.ocrScan {
+                OCRScanOverlay(scan: scan)
             }
         }
         .overlay((isCropDragging ? nil : selectionChrome)?.allowsHitTesting(false))
@@ -320,19 +346,12 @@ struct ScreenshotEditorRootView: View {
                 )
             }
 
-            if let draftHighlight {
-                let path = Path(roundedRect: draftHighlight, cornerRadius: 4)
-                context.fill(
-                    path,
-                    with: .color(viewModel.selectedColor.swiftUIColor.opacity(viewModel.highlightOpacity))
-                )
-            }
-
             if let draftArrow {
                 let path = arrowPath(
                     start: draftArrow.start,
                     end: draftArrow.end,
-                    lineWidth: displayStrokeWidth(for: arrowLineWidth)
+                    control: draftArrow.controlPoint,
+                    lineWidth: arrowLineWidth
                 )
                 context.stroke(
                     path,
@@ -468,22 +487,28 @@ struct ScreenshotEditorRootView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(colorScheme == .light ? AppPanelStyle.controlFill.opacity(0.94) : .clear)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                .stroke(colorScheme == .light ? Color.black.opacity(0.1) : Color.white.opacity(0.2), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.22), radius: 16, y: 10)
+        .shadow(color: .black.opacity(colorScheme == .light ? 0.14 : 0.22), radius: 16, y: 10)
     }
 
     private var highlightTransparencyPercent: Int {
         Int(((1 - viewModel.highlightOpacity) * 100).rounded())
     }
 
+    private var toolOptionsHeight: CGFloat { viewModel.activeTool == .highlight ? 160 : 96 }
+
     private var toolbarTop: CGFloat {
         guard viewModel.activeTool == .highlight || viewModel.activeTool == .mosaic || viewModel.activeTool == .text else { return layout.toolbarRect.minY }
         // Keep the property bubble below its tool even when the toolbar is near the screen edge.
-        let availableTop = layout.screenSize.height - layout.toolbarRect.height - 8 - 96 - 12
+        let availableTop = layout.screenSize.height - layout.toolbarRect.height - 8 - toolOptionsHeight - 12
         return min(layout.toolbarRect.minY, max(12, availableTop))
     }
 
@@ -529,6 +554,21 @@ struct ScreenshotEditorRootView: View {
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(AppPanelStyle.secondaryText)
+                if viewModel.activeTool == .highlight {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paintbrush.pointed")
+                        Text("笔刷大小")
+                        Spacer()
+                        Text("\(Int(viewModel.highlightBrushSize))pt").monospacedDigit()
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    Slider(value: $viewModel.highlightBrushSize, in: 8...64, step: 1)
+                        .accessibilityLabel("荧光笔笔刷大小")
+                        .accessibilityValue("\(Int(viewModel.highlightBrushSize))点")
+                    HStack { Text("8pt · 细"); Spacer(); Text("64pt · 粗") }
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppPanelStyle.secondaryText)
+                }
                 }
             }
             .padding(12)
@@ -536,7 +576,7 @@ struct ScreenshotEditorRootView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.5))
         }
-        .frame(width: 220, height: 96, alignment: .topLeading)
+        .frame(width: 220, height: toolOptionsHeight, alignment: .topLeading)
         .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
     }
 
@@ -599,7 +639,7 @@ struct ScreenshotEditorRootView: View {
 
     private func buttonForeground(isSelected: Bool, accent: Bool, isDisabled: Bool) -> Color {
         if isDisabled {
-            return Color.white.opacity(0.32)
+            return colorScheme == .dark ? Color.white.opacity(0.32) : Color.primary.opacity(0.28)
         }
 
         if accent || isSelected {
@@ -611,7 +651,7 @@ struct ScreenshotEditorRootView: View {
 
     private func buttonBackground(isSelected: Bool, accent: Bool, isDisabled: Bool) -> Color {
         if isDisabled {
-            return Color.white.opacity(0.04)
+            return colorScheme == .dark ? Color.white.opacity(0.04) : AppPanelStyle.lightToolbarButtonFill.opacity(0.45)
         }
 
         if accent {
@@ -622,7 +662,7 @@ struct ScreenshotEditorRootView: View {
             return Color.accentColor.opacity(0.82)
         }
 
-        return Color.white.opacity(0.1)
+        return colorScheme == .dark ? Color.white.opacity(0.1) : AppPanelStyle.lightToolbarButtonFill
     }
 
     // MARK: - Drag Gesture
@@ -645,15 +685,26 @@ struct ScreenshotEditorRootView: View {
                     ).integral
 
                 case .highlight:
-                    draftHighlight = CGRect(
-                        x: min(start.x, current.x),
-                        y: min(start.y, current.y),
-                        width: abs(current.x - start.x),
-                        height: abs(current.y - start.y)
-                    ).integral
+                    if draftHighlight == nil {
+                        draftHighlight = viewModel.makeHighlight(points: [displayPointToImagePoint(start)])
+                    }
+                    let point = displayPointToImagePoint(current)
+                    if let last = draftHighlight?.points.last,
+                       hypot(last.x - point.x, last.y - point.y) >= 1 {
+                        draftHighlight?.points.append(point)
+                    }
 
                 case .arrow:
-                    draftArrow = DraftArrow(start: start, end: current)
+                    if draftArrowPoints.isEmpty { draftArrowPoints = [start] }
+                    if let last = draftArrowPoints.last, hypot(last.x - current.x, last.y - current.y) >= 2 {
+                        draftArrowPoints.append(current)
+                    }
+                    if draftArrowPoints.count > 256 {
+                        draftArrowPoints = draftArrowPoints.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
+                    }
+                    let samples = draftArrowPoints.last == current ? draftArrowPoints : draftArrowPoints + [current]
+                    draftArrow = DraftArrow(start: start, end: current,
+                        controlPoint: CurvedArrowGeometry.controlPoint(for: samples).map { clampedDisplayPoint(for: $0) })
 
                 case .line:
                     draftLine = DraftLine(start: start, end: current)
@@ -677,19 +728,7 @@ struct ScreenshotEditorRootView: View {
                     }
 
                 case .text:
-                    guard hypot(current.x - start.x, current.y - start.y) > 3 else { return }
-                    if draggingTextIndex == nil {
-                        draggingTextIndex = findTextAnnotation(near: displayPointToImagePoint(start), radius: 4 / currentDisplayScale)?.0
-                        selectedTextIndex = draggingTextIndex
-                    }
-                    if let index = draggingTextIndex, case let .text(original) = viewModel.annotations[safe: index] {
-                        movedText = TextAnnotation(
-                            origin: CGPoint(x: max(0, min(viewModel.image.size.width - 20, original.origin.x + (current.x - start.x) / currentDisplayScale)),
-                                            y: max(0, min(viewModel.image.size.height - 20, original.origin.y + (current.y - start.y) / currentDisplayScale))),
-                            text: original.text, color: original.color, fontSize: original.fontSize,
-                            isBold: original.isBold, isItalic: original.isItalic, isUnderline: original.isUnderline,
-                            maxWidth: original.maxWidth)
-                    }
+                    updateTextDrag(from: start, to: current)
                 }
             }
             .onEnded { value in
@@ -720,22 +759,21 @@ struct ScreenshotEditorRootView: View {
 
                 case .highlight:
                     defer { draftHighlight = nil }
-                    guard let draftHighlight, draftHighlight.width >= 8, draftHighlight.height >= 8 else { return }
-                    viewModel.addHighlight(rect: displayRectToImageRect(draftHighlight))
+                    var stroke = draftHighlight ?? viewModel.makeHighlight(points: [displayPointToImagePoint(start)])
+                    let point = displayPointToImagePoint(end)
+                    if stroke.points.last != point { stroke.points.append(point) }
+                    viewModel.addHighlight(stroke)
 
                 case .arrow:
-                    defer { draftArrow = nil }
+                    defer { draftArrow = nil; draftArrowPoints = [] }
                     guard hypot(end.x - start.x, end.y - start.y) >= 10 else { return }
-                    viewModel.addAnnotation(
-                        .arrow(
-                            ArrowAnnotation(
-                                start: displayPointToImagePoint(start),
-                                end: displayPointToImagePoint(end),
-                                color: viewModel.selectedColor,
-                                lineWidth: arrowLineWidth
-                            )
-                        )
-                    )
+                    let samples = draftArrowPoints.isEmpty ? [start, end] : (draftArrowPoints.last == end ? draftArrowPoints : draftArrowPoints + [end])
+                    let control = CurvedArrowGeometry.controlPoint(for: samples)
+                        .map { clampedDisplayPoint(for: $0) }
+                    viewModel.addAnnotation(.arrow(ArrowAnnotation(
+                        start: displayPointToImagePoint(start), end: displayPointToImagePoint(end),
+                        color: viewModel.selectedColor, lineWidth: arrowLineWidth,
+                        controlPoint: control.map(displayPointToImagePoint))))
 
                 case .line:
                     defer { draftLine = nil }
@@ -774,6 +812,30 @@ struct ScreenshotEditorRootView: View {
                     break
                 }
             }
+    }
+
+    private func updateTextDrag(from start: CGPoint, to current: CGPoint) {
+        guard draftTextOrigin == nil, hypot(current.x - start.x, current.y - start.y) > 3 else { return }
+        if draggingTextIndex == nil {
+            draggingTextIndex = findTextAnnotation(near: displayPointToImagePoint(start), radius: 4 / currentDisplayScale)?.0
+            selectedTextIndex = draggingTextIndex
+        }
+        if let index = draggingTextIndex, case let .text(original) = viewModel.annotations[safe: index] {
+            movedText = TextAnnotation(
+                origin: CGPoint(x: max(0, min(viewModel.image.size.width - 20, original.origin.x + (current.x - start.x) / currentDisplayScale)),
+                                y: max(0, min(viewModel.image.size.height - 20, original.origin.y + (current.y - start.y) / currentDisplayScale))),
+                text: original.text, color: original.color, fontSize: original.fontSize,
+                isBold: original.isBold, isItalic: original.isItalic, isUnderline: original.isUnderline,
+                maxWidth: original.maxWidth)
+        }
+    }
+
+    private func finishTextDrag() {
+        if let index = draggingTextIndex, let movedText, viewModel.annotations.indices.contains(index) {
+            viewModel.annotations[index] = .text(movedText)
+        }
+        movedText = nil
+        draggingTextIndex = nil
     }
 
     // MARK: - Tap Gesture
@@ -840,19 +902,15 @@ struct ScreenshotEditorRootView: View {
                     style: StrokeStyle(lineWidth: displayStrokeWidth(for: rectangle.lineWidth))
                 )
 
-            case let .highlight(highlight):
-                let rect = imageRectToDisplayRect(highlight.rect)
-                let path = Path(roundedRect: rect, cornerRadius: 4)
-                context.fill(
-                    path,
-                    with: .color(highlight.color.swiftUIColor.opacity(highlight.opacity))
-                )
+            case .highlight:
+                break
 
             case let .arrow(arrow):
                 let path = arrowPath(
                     start: imagePointToDisplayPoint(arrow.start),
                     end: imagePointToDisplayPoint(arrow.end),
-                    lineWidth: displayStrokeWidth(for: arrow.lineWidth)
+                    control: arrow.controlPoint.map(imagePointToDisplayPoint),
+                    lineWidth: arrow.lineWidth
                 )
                 context.stroke(
                     path,
@@ -923,27 +981,10 @@ struct ScreenshotEditorRootView: View {
         }
     }
 
-    private func arrowPath(start: CGPoint, end: CGPoint, lineWidth: CGFloat) -> Path {
-        var path = Path()
-        path.move(to: start)
-        path.addLine(to: end)
-
-        let angle = atan2(end.y - start.y, end.x - start.x)
-        let headLength = max(lineWidth * 4.8, 12)
-        let leftPoint = CGPoint(
-            x: end.x - cos(angle - .pi / 6) * headLength,
-            y: end.y - sin(angle - .pi / 6) * headLength
-        )
-        let rightPoint = CGPoint(
-            x: end.x - cos(angle + .pi / 6) * headLength,
-            y: end.y - sin(angle + .pi / 6) * headLength
-        )
-        path.move(to: end)
-        path.addLine(to: leftPoint)
-        path.move(to: end)
-        path.addLine(to: rightPoint)
-
-        return path
+    private func arrowPath(start: CGPoint, end: CGPoint, control: CGPoint?, lineWidth: CGFloat) -> Path {
+        Path(CurvedArrowGeometry.path(start: displayPointToImagePoint(start), end: displayPointToImagePoint(end),
+            control: control.map(displayPointToImagePoint), lineWidth: lineWidth))
+            .applying(CGAffineTransform(scaleX: currentDisplayScale, y: currentDisplayScale))
     }
 
     // MARK: - Text Editor
@@ -961,12 +1002,6 @@ struct ScreenshotEditorRootView: View {
             onHeightChange: { textEditorHeight = $0 }
         )
         .frame(width: width, height: height)
-        .overlay(alignment: .topLeading) {
-            if draftText.isEmpty {
-                Text("输入文字").font(.system(size: fontSize)).foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-            }
-        }
         .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1).padding(-3).allowsHitTesting(false))
         .position(x: origin.x + width / 2, y: origin.y + height / 2)
     }
@@ -1060,6 +1095,7 @@ struct ScreenshotEditorRootView: View {
             .onChanged { value in
                 let point = value.startLocation
                 if cropDragEdge == nil {
+                    viewModel.cancelTextExtraction()
                     let targetRect = isCropDragging ? (cropAdjustRect ?? currentImageRect) : currentImageRect
                     cropDragEdge = cropEdge(at: point, in: targetRect)
                     cropDragStart = point
@@ -1287,6 +1323,7 @@ struct InlineTextEditor: NSViewRepresentable {
         context.coordinator.scrollView = scrollView
         scrollView.onLayout = { [weak coordinator = context.coordinator] in coordinator?.updateTextSize() }
         textView.onCommit = { [weak coordinator = context.coordinator] in coordinator?.parent.onCommit() }
+        textView.wantsKeyboardFocus = focused
 
         return scrollView
     }
@@ -1295,43 +1332,49 @@ struct InlineTextEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.parent = self
 
-        // Never replace marked text or its attributes while an input method composes.
+        // Focus immediately when attached; retain native IME ownership during composition.
+        (textView as? InlineTextView)?.wantsKeyboardFocus = focused
         guard !textView.hasMarkedText() else { return }
-        let selection = textView.selectedRange()
-        let font = makeFont()
-        textView.font = font
-        textView.textColor = textColor
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        textView.defaultParagraphStyle = paragraphStyle
-
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: textColor,
-            .paragraphStyle: paragraphStyle,
-        ]
-        var styledAttrs = attrs
-        if isUnderline { styledAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-        textView.typingAttributes = styledAttrs
-
+        let style = Style(fontSize: fontSize, weight: fontWeight, italic: isItalic, underline: isUnderline, color: textColor)
+        let styleChanged = context.coordinator.appliedStyle != style
         let replacedText = textView.string != text
-        if replacedText { textView.string = text }
-
-        textView.textStorage?.setAttributes(styledAttrs, range: NSRange(location: 0, length: textView.string.utf16.count))
-        if replacedText {
-            textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
-        } else if selection.location <= textView.string.utf16.count {
-            textView.setSelectedRange(NSRange(location: selection.location, length: min(selection.length, textView.string.utf16.count - selection.location)))
-        }
-        if focused && textView.window?.firstResponder != textView {
-            DispatchQueue.main.async {
-                textView.window?.makeFirstResponder(textView)
+        if styleChanged || replacedText {
+            let selection = textView.selectedRange()
+            let font = makeFont()
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byWordWrapping
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: font, .foregroundColor: textColor, .paragraphStyle: paragraph
+            ]
+            if isUnderline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            textView.textStorage?.beginEditing()
+            if styleChanged {
+                textView.font = font
+                textView.textColor = textColor
+                textView.defaultParagraphStyle = paragraph
             }
+            if replacedText { textView.string = text }
+            textView.typingAttributes = attrs
+            textView.textStorage?.setAttributes(attrs, range: NSRange(location: 0, length: textView.string.utf16.count))
+            textView.textStorage?.endEditing()
+            if replacedText {
+                textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+            } else if selection.location <= textView.string.utf16.count {
+                textView.setSelectedRange(NSRange(location: selection.location,
+                    length: min(selection.length, textView.string.utf16.count - selection.location)))
+            }
+            context.coordinator.appliedStyle = style
+            context.coordinator.needsTextMeasurement = true
         }
-
         context.coordinator.updateTextSize()
+    }
 
+    struct Style: Equatable {
+        let fontSize: CGFloat
+        let weight: NSFont.Weight
+        let italic: Bool
+        let underline: Bool
+        let color: NSColor
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1354,6 +1397,8 @@ struct InlineTextEditor: NSViewRepresentable {
         var parent: InlineTextEditor
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
+        var appliedStyle: Style?
+        var needsTextMeasurement = true
 
         init(_ parent: InlineTextEditor) {
             self.parent = parent
@@ -1362,6 +1407,7 @@ struct InlineTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             parent.text = textView.string
+            needsTextMeasurement = true
             updateTextSize()
 
         }
@@ -1374,7 +1420,7 @@ struct InlineTextEditor: NSViewRepresentable {
             // Focus changes to style controls do not commit the draft.
         }
 
-        func textShouldEndEditing(_ textView: NSTextView) -> Bool {
+        func textShouldEndEditing(_ textView: NSText) -> Bool {
             return true
         }
 
@@ -1390,19 +1436,38 @@ struct InlineTextEditor: NSViewRepresentable {
         }
 
         private var reportedHeight: CGFloat = 0
+        private var measuredHeight: CGFloat = 0
+        private var measuredWidth: CGFloat = 0
+        private var isMeasuring = false
+        private var heightNotificationScheduled = false
 
         func updateTextSize() {
-            guard let textView, let scrollView, let container = textView.textContainer,
+            guard !isMeasuring, let textView, let scrollView, let container = textView.textContainer,
                   let manager = textView.layoutManager else { return }
+            isMeasuring = true
+            defer { isMeasuring = false }
             let width = max(24, scrollView.contentSize.width)
-            container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-            manager.ensureLayout(for: container)
-            let height = max(parent.fontSize * 1.25 + 4, ceil(manager.usedRect(for: container).height) + 4)
-            let size = NSSize(width: width, height: max(height, scrollView.contentSize.height))
+            if abs(width - measuredWidth) > 0.5 {
+                measuredWidth = width
+                container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+                needsTextMeasurement = true
+            }
+            if needsTextMeasurement {
+                manager.ensureLayout(for: container)
+                measuredHeight = max(parent.fontSize * 1.25 + 4, ceil(manager.usedRect(for: container).height) + 4)
+                needsTextMeasurement = false
+            }
+            let size = NSSize(width: width, height: max(measuredHeight, scrollView.contentSize.height))
             if textView.frame.size != size { textView.setFrameSize(size) }
-            if abs(height - reportedHeight) > 0.5 {
-                reportedHeight = height
-                DispatchQueue.main.async { [weak self] in self?.parent.onHeightChange(height) }
+            if abs(measuredHeight - reportedHeight) > 0.5 {
+                reportedHeight = measuredHeight
+                guard !heightNotificationScheduled else { return }
+                heightNotificationScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.heightNotificationScheduled = false
+                    self.parent.onHeightChange(self.reportedHeight)
+                }
             }
         }
 
@@ -1419,6 +1484,16 @@ private final class InlineTextScrollView: NSScrollView {
 
 private final class InlineTextView: NSTextView {
     var onCommit: (() -> Void)?
+    var wantsKeyboardFocus = false { didSet { focusIfNeeded() } }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusIfNeeded()
+    }
+    private func focusIfNeeded() {
+        guard wantsKeyboardFocus, let window, window.firstResponder !== self else { return }
+        window.makeFirstResponder(self)
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36, event.modifierFlags.contains(.command), !hasMarkedText() {

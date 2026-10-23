@@ -37,6 +37,37 @@ final class EdgeSnappingOverlayTests: XCTestCase {
         }
     }
 
+    @MainActor func testHoverPreviewsStartingAnchorAndSmallDragKeepsIt() async throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let controller = SelectionOverlayWindowController(screen: screen, mode: .framed, hotKeyHint: "⌥S",
+            frozenImage: try frame(size: screen.frame.size), frozenWindowInfo: [], isEdgeSnappingEnabled: true,
+            captureHandler: { _ in }, cancelHandler: {})
+        defer { controller.close() }
+        let canvas = try XCTUnwrap(controller.window?.contentView as? SelectionOverlayCanvasView)
+        let start = CGPoint(x: 43, y: 77)
+        canvas.mouseMoved(with: try event(.mouseMoved, at: start, canvas: canvas))
+        for _ in 0..<100 {
+            if canvas.anchorPreviewPoint != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let preview = try XCTUnwrap(canvas.anchorPreviewPoint)
+        XCTAssertEqual(preview.x, 40, accuracy: 1)
+        XCTAssertEqual(preview.y, 80, accuracy: 1)
+        canvas.mouseDown(with: try event(.leftMouseDown, at: start, canvas: canvas))
+        canvas.mouseDragged(with: try event(.leftMouseDragged, at: CGPoint(x: 55, y: 100), canvas: canvas))
+        let initialOrigin = try XCTUnwrap(canvas.snapResult?.rect.origin)
+        // Large 1x displays downsample; keep the full border including sample uncertainty.
+        XCTAssertEqual(initialOrigin.x, 40, accuracy: 3)
+        XCTAssertEqual(initialOrigin.y, 80, accuracy: 3)
+        XCTAssertLessThanOrEqual(initialOrigin.x, 40)
+        XCTAssertLessThanOrEqual(initialOrigin.y, 80)
+        canvas.mouseDragged(with: try event(.leftMouseDragged, at: CGPoint(x: 557, y: 398), canvas: canvas))
+        XCTAssertEqual(canvas.snapResult?.rect.origin, initialOrigin)
+        canvas.flagsChanged(with: try keyEvent(modifiers: .option))
+        XCTAssertNil(canvas.anchorPreviewPoint)
+        XCTAssertEqual(canvas.snapResult?.rect.origin, start)
+    }
+
     @MainActor func testOptionHeldOnReleaseUsesRawCoordinates() async throws {
         let screen = try XCTUnwrap(NSScreen.main)
         var captured: ScreenshotCaptureRequest?

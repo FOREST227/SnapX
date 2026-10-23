@@ -69,13 +69,44 @@ struct SettingsView: View {
                         .toggleStyle(.switch)
                         .controlSize(.small)
                 }
-                Text("大致框选后，边缘靠近表格线或面板分隔线时自动贴合。按住 Option（⌥）可临时关闭吸附。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("默认关闭；识别可能不准。当前仅辅助拖动框选，不会自动选中整张表格。")
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("吸附范围")
+                        Spacer()
+                        Text("\(Int(appState.edgeSnappingRange))pt")
+                            .monospacedDigit()
+                            .foregroundStyle(AppPanelStyle.accent)
+                        Button {
+                            appState.setEdgeSnappingRange(EdgeSnapRange.defaultValue)
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(appState.edgeSnappingRange == EdgeSnapRange.defaultValue)
+                        .help("恢复默认 16pt")
+                        .accessibilityLabel("恢复默认吸附范围 16pt")
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    Slider(value: Binding(get: { appState.edgeSnappingRange },
+                                          set: { appState.setEdgeSnappingRange($0) }),
+                           in: EdgeSnapRange.allowed, step: 1)
+                        .accessibilityLabel("吸附范围")
+                        .accessibilityValue("\(Int(appState.edgeSnappingRange))点")
+                    HStack {
+                        Text("4pt · 精细")
+                        Spacer()
+                        Text("32pt · 宽松")
+                    }
                     .font(.system(size: 11))
                     .foregroundStyle(AppPanelStyle.secondaryText)
+                }
+                .disabled(!appState.isEdgeSnappingEnabled)
+                Text("靠近边缘时显示蓝色起点，按下后锁定；拖动框选会贴合附近边界。按住 Option（⌥）可临时关闭吸附。")
+                    .panelDescription(size: 12)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("默认关闭；识别可能不准。支持常见圆角气泡，外留约 2pt；不会自动选中整张表格。")
+                    .panelDescription(size: 11)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)
@@ -99,9 +130,8 @@ struct SettingsView: View {
             }
             .settingsGroup()
             Text("点击按键框录入，至少包含一个修饰键。录入时全局快捷键暂停，Esc 取消。")
-                .font(.system(size: 12))
+                .panelDescription(size: 12)
                 .lineSpacing(2)
-                .foregroundStyle(AppPanelStyle.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -121,8 +151,7 @@ struct SettingsView: View {
                         Text(appState.launchAtLoginStatusMessage.isEmpty
                              ? "登录 Mac 后自动运行 SnapX"
                              : appState.launchAtLoginStatusMessage)
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppPanelStyle.secondaryText)
+                            .panelDescription(size: 12)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
@@ -156,8 +185,7 @@ struct SettingsView: View {
             }
             .settingsGroup()
             Text("授权后返回此页面，状态会自动刷新。")
-                .font(.system(size: 12))
-                .foregroundStyle(AppPanelStyle.secondaryText)
+                .panelDescription(size: 12)
         }
     }
 
@@ -229,9 +257,8 @@ private struct CaptureTimingModeButton: View {
                 }
                 .accessibilityHidden(true)
                 Text(mode.description)
-                    .font(.system(size: 12))
+                    .panelDescription(size: 12)
                     .lineSpacing(2)
-                    .foregroundStyle(AppPanelStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
             }
@@ -304,21 +331,6 @@ private struct ThemeSegmentedControl: View {
     }
 }
 
-private struct SettingsNeutralButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
-            .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
-                .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
-            .contentShape(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5)
-    }
-}
 
 private struct PermissionSettingRow: View {
     let title: String
@@ -345,12 +357,11 @@ private struct PermissionSettingRow: View {
             }
             HStack(spacing: 12) {
                 Text(detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .panelDescription(size: 12)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 Button(isGranted ? "管理" : "去授权", action: openSettings)
-                    .buttonStyle(SettingsNeutralButtonStyle())
+                    .buttonStyle(PanelNeutralButtonStyle())
                     .fixedSize()
                     .accessibilityLabel("在系统设置中管理\(title)权限")
             }
@@ -669,7 +680,7 @@ struct ShortcutErrorIndicator: View {
                     Spacer()
                     Button("知道了") { showsDetails = false }
                 }
-                .buttonStyle(SettingsNeutralButtonStyle())
+                .buttonStyle(PanelNeutralButtonStyle())
             }
             .padding(14)
             .frame(width: 260)

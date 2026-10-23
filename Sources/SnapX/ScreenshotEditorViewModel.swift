@@ -17,6 +17,7 @@ final class ScreenshotEditorViewModel: ObservableObject {
     }
     @Published var selectedColor: ScreenshotAnnotationColor = .red
     @Published var highlightOpacity: Double = 0.35
+    @Published var highlightBrushSize: Double = 24
     @Published var mosaicBrushSize: Double = 28
     @Published var textFontSize: CGFloat = 24
     @Published var textIsBold: Bool = false
@@ -33,7 +34,8 @@ final class ScreenshotEditorViewModel: ObservableObject {
     @Published private var undoSnapshots: [[ScreenshotEditorAnnotation]] = []
     @Published private var redoSnapshots: [[ScreenshotEditorAnnotation]] = []
     private var isApplyingHistory = false
-    @Published var isExtractingText = false
+    @Published private(set) var ocrScan: OCRScanTimeline?
+    var isExtractingText: Bool { ocrScan != nil }
     @Published var toastMessage: String?
     @Published var hasActiveTextDraft = false
     @Published var textDraftDiscardRequest = false
@@ -82,9 +84,17 @@ final class ScreenshotEditorViewModel: ObservableObject {
         annotations.append(annotation)
     }
 
-    func addHighlight(rect: CGRect) {
-        addAnnotation(.highlight(HighlightAnnotation(rect: rect, color: selectedColor,
-            opacity: CGFloat(min(max(highlightOpacity, 0), 1)))))
+    func makeHighlight(points: [CGPoint]) -> HighlightAnnotation {
+        HighlightAnnotation(points: points, color: selectedColor,
+            opacity: CGFloat(highlightOpacity.isFinite ? min(max(highlightOpacity, 0), 1) : 0.35),
+            brushSize: CGFloat(highlightBrushSize.isFinite ? min(max(highlightBrushSize, 8), 64) : 24))
+    }
+
+    func addHighlight(points: [CGPoint]) { addHighlight(makeHighlight(points: points)) }
+
+    func addHighlight(_ stroke: HighlightAnnotation) {
+        guard !stroke.points.isEmpty else { return }
+        addAnnotation(.highlight(stroke))
     }
 
     func addMosaic(points: [CGPoint]) {
@@ -113,6 +123,26 @@ final class ScreenshotEditorViewModel: ObservableObject {
         ScreenshotEditorRenderer.render(image: image, annotations: annotations)
     }
 
+    func beginTextExtraction() -> UUID {
+        let scan = OCRScanTimeline(startedAt: ProcessInfo.processInfo.systemUptime)
+        ocrScan = scan
+        return scan.id
+    }
+
+    func finishTextExtractionScan(id: UUID, reduceMotion: Bool) async throws -> Bool {
+        guard let scan = ocrScan, scan.id == id else { return false }
+        if !reduceMotion {
+            let remaining = max(0, scan.startedAt + OCRScanTimeline.duration - ProcessInfo.processInfo.systemUptime)
+            try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+        }
+        try Task.checkCancellation()
+        guard ocrScan?.id == id else { return false }
+        ocrScan = nil
+        return true
+    }
+
+    func cancelTextExtraction() { ocrScan = nil }
+
     func recrop(newRect: CGRect) {
         guard let cropInfo else { return }
         let sf = cropInfo.scaleFactor
@@ -127,6 +157,7 @@ final class ScreenshotEditorViewModel: ObservableObject {
               let croppedCG = fullCG.cropping(to: pixelRect) else { return }
 
         let newImage = NSImage(cgImage: croppedCG, size: newRect.size)
+        cancelTextExtraction()
         image = newImage
         previewTask?.cancel()
         previewTask = nil

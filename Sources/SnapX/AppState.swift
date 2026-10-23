@@ -41,6 +41,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published private(set) var edgeSnappingRange: Double = EdgeSnapRange.defaultValue
+
+    func setEdgeSnappingRange(_ value: Double) {
+        edgeSnappingRange = EdgeSnapRange.normalized(value)
+        captureCoordinator.edgeSnappingRange = CGFloat(edgeSnappingRange)
+        UserDefaults.standard.set(edgeSnappingRange, forKey: EdgeSnapRange.preferenceKey)
+    }
+
     var dismissStatusPanel: (() -> Void)?
 
     private let captureCoordinator = CaptureCoordinator()
@@ -62,6 +70,8 @@ final class AppState: ObservableObject {
         let savedMode = UserDefaults.standard.string(forKey: "captureTimingMode")
             .flatMap { CaptureTimingMode(rawValue: $0) } ?? .liveSelect
         captureTimingMode = savedMode
+        edgeSnappingRange = EdgeSnapRange.load()
+        captureCoordinator.edgeSnappingRange = CGFloat(edgeSnappingRange)
         captureCoordinator.captureTimingMode = savedMode
         captureCoordinator.isEdgeSnappingEnabled = isEdgeSnappingEnabled
     }

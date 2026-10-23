@@ -9,6 +9,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
     private let onPin: (NSImage) -> Void
     private let onCopy: (NSImage) -> Void
     private let onClose: () -> Void
+    private let textPasteboard: NSPasteboard
     private let layout: ScreenshotEditorLayout
     private var keyMonitor: Any?
     private var extractionTask: Task<Void, Never>?
@@ -18,6 +19,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         sourceRect: CGRect?,
         cropInfo: ScreenshotEditorCropInfo? = nil,
         existingWindow: NSWindow? = nil,
+        textPasteboard: NSPasteboard = .general,
         onPin: @escaping (NSImage) -> Void,
         onCopy: @escaping (NSImage) -> Void,
         onClose: @escaping () -> Void
@@ -26,6 +28,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         self.onPin = onPin
         self.onCopy = onCopy
         self.onClose = onClose
+        self.textPasteboard = textPasteboard
         layout = Self.makeLayout(for: image.size, sourceRect: sourceRect)
 
         let window = existingWindow ?? ScreenshotEditorWindow(
@@ -45,10 +48,19 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         fatalError("init(coder:) has not been implemented")
     }
 
-    func windowWillClose(_ notification: Notification) {
+    override func close() {
+        cancelTextExtraction()
+        super.close()
+    }
+
+    private func cancelTextExtraction() {
         extractionTask?.cancel()
         extractionTask = nil
-        viewModel.isExtractingText = false
+        viewModel.cancelTextExtraction()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        cancelTextExtraction()
         for child in window?.childWindows ?? [] { child.close() }
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
@@ -181,8 +193,8 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             return
         }
 
-        viewModel.isExtractingText = true
-        viewModel.showToast("正在提取文字…")
+        extractionTask?.cancel()
+        let id = viewModel.beginTextExtraction()
 
         extractionTask = Task.detached(priority: .userInitiated) { [weak self] in
             let request = VNRecognizeTextRequest()
@@ -199,31 +211,33 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
                 guard !Task.isCancelled else { return }
-                await MainActor.run { [weak self] in
-                    guard let self, !Task.isCancelled else { return }
-                    self.extractionTask = nil
-                    self.viewModel.isExtractingText = false
-                    guard !text.isEmpty else {
-                        NSSound.beep()
-                        self.viewModel.showToast("未识别到文字")
-                        return
-                    }
-
-                    ScreenshotEditorFileIO.copyTextToPasteboard(text)
-                    self.viewModel.showToast("文字已复制到剪贴板")
-                    RecognizedTextPresenter.present(text: text, parentWindow: self.window)
-                }
+                try await self?.finishTextExtraction(text: text, id: id)
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
-                    guard let self, !Task.isCancelled else { return }
+                    guard let self, !Task.isCancelled, self.viewModel.ocrScan?.id == id else { return }
                     self.extractionTask = nil
-                    self.viewModel.isExtractingText = false
+                    self.viewModel.cancelTextExtraction()
                     NSSound.beep()
                     self.viewModel.showToast("提取失败：\(error.localizedDescription)", duration: 8)
                 }
             }
         }
+    }
+
+    private func finishTextExtraction(text: String, id: UUID) async throws {
+        guard viewModel.ocrScan?.id == id else { return }
+        guard try await viewModel.finishTextExtractionScan(id: id,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) else { return }
+        extractionTask = nil
+        guard !text.isEmpty else {
+            NSSound.beep()
+            viewModel.showToast("未识别到文字")
+            return
+        }
+        ScreenshotEditorFileIO.copyTextToPasteboard(text, to: textPasteboard)
+        viewModel.showToast("文字已复制到剪贴板")
+        RecognizedTextPresenter.present(text: text, parentWindow: window)
     }
 
     private static func makeLayout(for imageSize: CGSize, sourceRect: CGRect?) -> ScreenshotEditorLayout {

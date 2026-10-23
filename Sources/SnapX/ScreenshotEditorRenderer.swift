@@ -7,31 +7,36 @@ enum ScreenshotEditorRenderer {
     private static let ciContext = CIContext()
 
     static func render(image: NSImage, annotations: [ScreenshotEditorAnnotation]) -> NSImage {
+        guard !annotations.isEmpty else { return image }
         let size = image.size
-        let renderedImage = NSImage(size: size)
-        renderedImage.lockFocus()
-
-        guard let context = NSGraphicsContext.current?.cgContext else {
-            renderedImage.unlockFocus()
-            return image
-        }
-
+        guard size.width > 0, size.height > 0 else { return image }
+        let source = image.cgImageRepresentation
+        let scale = max(1, source.map { CGFloat($0.width) / size.width } ?? 1)
+        let width = Int(ceil(size.width * scale)), height = Int(ceil(size.height * scale))
+        // Standard images use nonlinear sRGB compositing to match the preview.
+        // Preserve wide-gamut source profiles so unmarked P3 content is not clipped.
+        guard let standardSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return image }
+        let colorSpace: CGColorSpace
+        if let sourceSpace = source?.colorSpace, sourceSpace.model == .rgb, sourceSpace.isWideGamutRGB {
+            colorSpace = sourceSpace
+        } else { colorSpace = standardSpace }
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                  bytesPerRow: width * 4, space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return image }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        context.scaleBy(x: scale, y: scale)
         context.interpolationQuality = .high
         image.draw(in: CGRect(origin: .zero, size: size), from: .zero, operation: .copy, fraction: 1)
-
-        if annotations.contains(where: { annotation in
-            if case .mosaic = annotation {
-                return true
-            }
-            return false
-        }), let cgImage = image.cgImageRepresentation,
-           let pixelatedCGImage = makePixelatedCGImage(for: cgImage) {
-            drawMosaics(annotations, pixelatedImage: pixelatedCGImage, in: context, size: size)
+        if annotations.contains(where: { if case .mosaic = $0 { return true }; return false }),
+           let source, let pixelated = makePixelatedCGImage(for: source) {
+            drawMosaics(annotations, pixelatedImage: pixelated, in: context, size: size)
         }
-
+        drawHighlights(annotations, in: context, size: size)
         drawVectors(annotations, in: context, size: size)
-        renderedImage.unlockFocus()
-        return renderedImage
+        guard let output = context.makeImage() else { return image }
+        return NSImage(cgImage: output, size: size)
     }
 
     static func makePixelatedPreviewImage(for image: NSImage) -> NSImage? {
@@ -104,6 +109,21 @@ enum ScreenshotEditorRenderer {
         }
     }
 
+    private static func drawHighlights(_ annotations: [ScreenshotEditorAnnotation], in context: CGContext, size: CGSize) {
+        var transform = CGAffineTransform(translationX: 0, y: size.height).scaledBy(x: 1, y: -1)
+        for annotation in annotations {
+            guard case let .highlight(stroke) = annotation else { continue }
+            let outline = HighlighterGeometry.outline(points: stroke.points, width: stroke.brushSize)
+            guard let path = outline.copy(using: &transform) else { continue }
+            context.saveGState()
+            context.setBlendMode(stroke.color == .white ? .normal : .multiply)
+            context.setFillColor(stroke.color.nsColor.withAlphaComponent(stroke.opacity).cgColor)
+            context.addPath(path)
+            context.fillPath()
+            context.restoreGState()
+        }
+    }
+
     private static func drawVectors(
         _ annotations: [ScreenshotEditorAnnotation],
         in context: CGContext,
@@ -123,43 +143,18 @@ enum ScreenshotEditorRenderer {
                 context.addPath(path)
                 context.strokePath()
 
-            case let .highlight(highlight):
-                let rect = appKitRect(fromTopLeftRect: highlight.rect, canvasSize: size)
-                let path = CGPath(
-                    roundedRect: rect,
-                    cornerWidth: 6,
-                    cornerHeight: 6,
-                    transform: nil
-                )
-                context.setFillColor(highlight.color.nsColor.withAlphaComponent(highlight.opacity).cgColor)
-                context.addPath(path)
-                context.fillPath()
+            case .highlight:
+                break // Highlighter ink is composited beneath the vector annotations.
 
             case let .arrow(arrow):
-                let start = appKitPoint(fromTopLeftPoint: arrow.start, canvasSize: size)
-                let end = appKitPoint(fromTopLeftPoint: arrow.end, canvasSize: size)
+                var transform = CGAffineTransform(translationX: 0, y: size.height).scaledBy(x: 1, y: -1)
+                let path = CurvedArrowGeometry.path(start: arrow.start, end: arrow.end,
+                    control: arrow.controlPoint, lineWidth: arrow.lineWidth)
                 context.setStrokeColor(arrow.color.nsColor.cgColor)
                 context.setLineWidth(arrow.lineWidth)
                 context.setLineCap(.round)
                 context.setLineJoin(.round)
-                context.beginPath()
-                context.move(to: start)
-                context.addLine(to: end)
-
-                let angle = atan2(end.y - start.y, end.x - start.x)
-                let headLength = max(arrow.lineWidth * 4.8, 12)
-                let leftPoint = CGPoint(
-                    x: end.x - cos(angle - .pi / 6) * headLength,
-                    y: end.y - sin(angle - .pi / 6) * headLength
-                )
-                let rightPoint = CGPoint(
-                    x: end.x - cos(angle + .pi / 6) * headLength,
-                    y: end.y - sin(angle + .pi / 6) * headLength
-                )
-                context.move(to: end)
-                context.addLine(to: leftPoint)
-                context.move(to: end)
-                context.addLine(to: rightPoint)
+                if let converted = path.copy(using: &transform) { context.addPath(converted) }
                 context.strokePath()
 
             case let .line(line):

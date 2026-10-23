@@ -23,7 +23,7 @@ final class SettingsLayoutTests: XCTestCase {
                     guard let value = color.usingColorSpace(.sRGB) else { return [] }
                     return [value.redComponent, value.greenComponent, value.blueComponent]
                 }
-                foreground = rgb(AppPanelStyle.secondaryTextColor)
+                foreground = rgb(AppPanelStyle.descriptionTextColor)
                 start = rgb(AppPanelStyle.backgroundStartColor)
                 end = rgb(AppPanelStyle.backgroundEndColor)
             }

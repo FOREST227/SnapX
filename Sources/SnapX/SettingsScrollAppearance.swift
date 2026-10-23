@@ -24,11 +24,33 @@ final class SettingsScrollAppearanceView: NSView {
     }
     func configureScroller() {
         guard let scroll = enclosingScrollView else { return }
+        PanelScrollAppearance.configure(scroll)
+    }
+}
+
+@MainActor
+enum PanelScrollAppearance {
+    static func configure(_ scroll: NSScrollView) {
         if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         if scroll.verticalScroller?.controlSize != .small { scroll.verticalScroller?.controlSize = .small }
         if scroll.drawsBackground { scroll.drawsBackground = false }
         if scroll.contentView.drawsBackground { scroll.contentView.drawsBackground = false }
         if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
+    }
+}
+
+/// AppKit may reapply the system's legacy scroller preference after attachment
+/// or an appearance change. Reassert the panel policy when it lays out the view.
+final class PanelOverlayScrollView: NSScrollView {
+    private var isConfiguringAppearance = false
+
+    override func tile() {
+        if !isConfiguringAppearance {
+            isConfiguringAppearance = true
+            PanelScrollAppearance.configure(self)
+            isConfiguringAppearance = false
+        }
+        super.tile()
     }
 }
 

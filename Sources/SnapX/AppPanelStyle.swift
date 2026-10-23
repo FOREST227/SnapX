@@ -17,6 +17,16 @@ enum AppPanelStyle {
         }
     }
     static var secondaryText: Color { Color(nsColor: secondaryTextColor) }
+    static var descriptionTextColor: NSColor {
+        NSColor(name: "SnapXDescriptionText") { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 0.72, green: 0.74, blue: 0.77, alpha: 1)
+                : NSColor(srgbRed: 0.28, green: 0.30, blue: 0.33, alpha: 1)
+        }
+    }
+    static var descriptionText: Color { Color(nsColor: descriptionTextColor) }
+
     static var success: Color {
         Color(nsColor: NSColor(name: "SnapXSuccess") { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -33,6 +43,7 @@ enum AppPanelStyle {
                 : NSColor(srgbRed: 250.0 / 255, green: 251.0 / 255, blue: 253.0 / 255, alpha: 1)
         })
     }
+    static let lightToolbarButtonFill = Color(.sRGB, red: 223.0 / 255, green: 225.0 / 255, blue: 229.0 / 255, opacity: 1)
     static var groupFill: Color { Color.primary.opacity(0.05) }
     static func backgroundStart(isDark: Bool) -> NSColor {
         isDark ? NSColor(srgbRed: 0.24, green: 0.25, blue: 0.27, alpha: 1)
@@ -89,5 +100,29 @@ private struct PanelGradient: View {
                     ]), startPoint: CGPoint(x: -100, y: 0), endPoint: CGPoint(x: 360, y: 650)))
             }
         }
+    }
+}
+
+/// Subordinate copy shared by the menu and settings panels.
+extension View {
+    func panelDescription(size: CGFloat = 12) -> some View {
+        font(.system(size: size, weight: .light))
+            .foregroundStyle(AppPanelStyle.descriptionText)
+    }
+}
+
+struct PanelNeutralButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius)
+                .strokeBorder(AppPanelStyle.controlBorder, lineWidth: 0.5))
+            .contentShape(RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5)
     }
 }

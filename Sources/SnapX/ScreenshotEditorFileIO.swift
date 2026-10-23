@@ -29,8 +29,7 @@ enum ScreenshotEditorFileIO {
         return destinationURL
     }
 
-    static func copyTextToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
+    static func copyTextToPasteboard(_ text: String, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }

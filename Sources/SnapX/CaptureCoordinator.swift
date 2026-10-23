@@ -113,6 +113,7 @@ final class CaptureCoordinator {
     private var framedHotKeyHint = "⌘⇧S"
     private var displayHotKeyHint = "⌘⇧F"
     var isEdgeSnappingEnabled = false
+    var edgeSnappingRange = CGFloat(EdgeSnapRange.defaultValue)
     var captureTimingMode: CaptureTimingMode = .liveSelect
     private var frozenScreenImages: [CGDirectDisplayID: CGImage] = [:]
     private var activeCaptureTimingMode: CaptureTimingMode?
@@ -258,6 +259,7 @@ final class CaptureCoordinator {
                 frozenImage: frozenImage,
                 frozenWindowInfo: frozenWindowInfo,
                 isEdgeSnappingEnabled: isEdgeSnappingEnabled,
+                edgeSnappingRange: edgeSnappingRange,
                 captureHandler: { [weak self] request in
                     self?.finishCapture(with: request)
                 },

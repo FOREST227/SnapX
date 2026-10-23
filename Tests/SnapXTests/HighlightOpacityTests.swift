@@ -15,7 +15,7 @@ final class HighlightOpacityTests: XCTestCase {
             let model = ScreenshotEditorViewModel(image: image)
             model.selectedColor = .black
             model.highlightOpacity = opacity
-            model.addHighlight(rect: CGRect(x: 0, y: 0, width: 20, height: 20))
+            model.addHighlight(points: [CGPoint(x: 2, y: 10), CGPoint(x: 18, y: 10)])
             let output = try XCTUnwrap(model.renderedImage().cgImage(forProposedRect: nil, context: nil, hints: nil))
             let color = try XCTUnwrap(NSBitmapImageRep(cgImage: output).colorAt(x: 10, y: 10)?.usingColorSpace(.deviceRGB))
             brightness.append(color.redComponent)
@@ -27,9 +27,9 @@ final class HighlightOpacityTests: XCTestCase {
     func testNewHighlightsKeepTheirOwnOpacityThroughUndoRedo() {
         let model = ScreenshotEditorViewModel(image: NSImage(size: CGSize(width: 20, height: 20)))
         model.highlightOpacity = 0.2
-        model.addHighlight(rect: CGRect(x: 1, y: 1, width: 10, height: 10))
+        model.addHighlight(points: [CGPoint(x: 2, y: 10), CGPoint(x: 18, y: 10)])
         model.highlightOpacity = 0.8
-        model.addHighlight(rect: CGRect(x: 2, y: 2, width: 10, height: 10))
+        model.addHighlight(points: [CGPoint(x: 2, y: 10), CGPoint(x: 18, y: 10)])
         model.undoLastAnnotation()
         model.redoLastAnnotation()
         XCTAssertEqual(model.annotations.count, 2)
@@ -44,7 +44,7 @@ final class HighlightOpacityTests: XCTestCase {
         let model = ScreenshotEditorViewModel(image: NSImage(size: CGSize(width: 20, height: 20)))
         for value in [-1.0, 2.0] {
             model.highlightOpacity = value
-            model.addHighlight(rect: CGRect(x: 1, y: 1, width: 10, height: 10))
+            model.addHighlight(points: [CGPoint(x: 2, y: 10), CGPoint(x: 18, y: 10)])
         }
         guard case let .highlight(first) = model.annotations[0],
               case let .highlight(second) = model.annotations[1] else { return XCTFail("Expected highlights") }

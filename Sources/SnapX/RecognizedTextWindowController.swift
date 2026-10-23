@@ -11,8 +11,8 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
         self.recognizedText = text
 
         let panel = NSPanel(
-            contentRect: CGRect(x: 0, y: 0, width: 420, height: 280),
-            styleMask: [.titled, .closable, .resizable],
+            contentRect: CGRect(x: 0, y: 0, width: 520, height: 400),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -59,64 +59,19 @@ final class RecognizedTextWindowController: NSWindowController, NSWindowDelegate
         window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.title = "提取到的文字"
-        window.minSize = NSSize(width: 320, height: 220)
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
+        window.contentMinSize = NSSize(width: 360, height: 280)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
         window.isFloatingPanel = true
         window.hidesOnDeactivate = false
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
 
-        let container = NSView(frame: CGRect(x: 0, y: 0, width: 420, height: 280))
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let subtitle = NSTextField(labelWithString: "识别结果已复制到剪贴板。")
-        subtitle.font = .systemFont(ofSize: 13)
-        subtitle.textColor = .secondaryLabelColor
-        subtitle.translatesAutoresizingMaskIntoConstraints = false
-
-        let scrollView = NSScrollView(frame: .zero)
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .noBorder
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        let textView = NSTextView(frame: .zero)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: 13)
-        textView.string = text
-        textView.textContainerInset = CGSize(width: 2, height: 6)
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-
-        scrollView.documentView = textView
-
-        let copyButton = NSButton(title: "复制全部", target: self, action: #selector(copyAllText))
-        copyButton.bezelStyle = .rounded
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(copyButton)
-        container.addSubview(subtitle)
-        container.addSubview(scrollView)
-
-        NSLayoutConstraint.activate([
-            subtitle.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            subtitle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
-            subtitle.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
-            copyButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
-            copyButton.centerYAnchor.constraint(equalTo: subtitle.centerYAnchor),
-            scrollView.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 12),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18),
-        ])
-
-        window.contentView = container
+        window.contentView = NSHostingView(rootView: RecognizedTextView(text: text) { [weak self] in
+            self?.copyAllText()
+        }.ignoresSafeArea(.container, edges: .top))
+        ThemeManager.shared.applyTheme(to: window)
     }
 
     @objc private func copyAllText() {
