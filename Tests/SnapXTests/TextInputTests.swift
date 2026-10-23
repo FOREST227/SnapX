@@ -67,7 +67,10 @@ final class TextInputTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(nanoseconds: 100_000_000)
         let input = try XCTUnwrap(window.firstResponder as? NSTextView)
-        XCTAssertGreaterThan(height, 100, "Wrapped text must grow beyond a single line")
+        XCTAssertEqual(input.string, text)
+        XCTAssertEqual(input.frame.width, 180, accuracy: 1)
+        let container = try XCTUnwrap(input.textContainer)
+        XCTAssertGreaterThan(height, 100, "Wrapped text must grow beyond a single line; native frame=\(input.frame), used layout=\(String(describing: input.layoutManager?.usedRect(for: container)))")
         XCTAssertEqual(input.textContainer?.containerSize.width ?? 0, 180, accuracy: 1)
         input.setSelectedRange(NSRange(location: 2, length: 3))
         host.rootView = editor(underline: false)
@@ -75,6 +78,13 @@ final class TextInputTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(input.selectedRange(), NSRange(location: 2, length: 3))
         XCTAssertNil(input.textStorage?.attribute(.underlineStyle, at: 0, effectiveRange: nil))
+        let wideHeight = height
+        window.setContentSize(NSSize(width: 100, height: 100))
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(input.frame.width, 100, accuracy: 1)
+        XCTAssertEqual(input.textContainer?.containerSize.width ?? 0, 100, accuracy: 1)
+        XCTAssertGreaterThan(height, wideHeight, "Narrowing the view must remeasure wrapped text")
     }
 
 }

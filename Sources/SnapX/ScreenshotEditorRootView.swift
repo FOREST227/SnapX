@@ -1447,9 +1447,15 @@ struct InlineTextEditor: NSViewRepresentable {
             isMeasuring = true
             defer { isMeasuring = false }
             let width = max(24, scrollView.contentSize.width)
-            if abs(width - measuredWidth) > 0.5 {
-                measuredWidth = width
+            if abs(width - measuredWidth) > 0.5 || abs(textView.frame.width - width) > 0.5
+                || abs(container.containerSize.width - width) > 0.5 {
+                // Establish the native view width before measuring. On older
+                // AppKit, widthTracksTextView invalidates wrapping when the
+                // frame changes; measuring first would cache a one-line height.
+                textView.setFrameSize(NSSize(width: width,
+                    height: max(textView.frame.height, scrollView.contentSize.height)))
                 container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+                measuredWidth = container.containerSize.width
                 needsTextMeasurement = true
             }
             if needsTextMeasurement {
