@@ -404,13 +404,13 @@ final class SelectionOverlayCanvasView: NSView {
         }
 
         overlayPath.windingRule = .evenOdd
-        NSColor.black.withAlphaComponent(0.48).setFill()
+        NSColor.black.withAlphaComponent(SelectionChromeStyle.dimOpacity).setFill()
         overlayPath.fill()
 
         switch mode {
         case .framed:
             if let areaSelectionRect {
-                drawHighlightOutline(for: areaSelectionRect)
+                drawAreaSelectionOutline(for: areaSelectionRect)
                 drawSnappedEdges()
                 drawFloatingLabel(
                     "\(Int(areaSelectionRect.width)) × \(Int(areaSelectionRect.height))" + snappingHint,
@@ -592,6 +592,16 @@ final class SelectionOverlayCanvasView: NSView {
         highlightPath.stroke()
     }
 
+    // Area selections are rectangular captures, so their chrome matches the
+    // editor's selection frame exactly (color, width, corner radius).
+    private func drawAreaSelectionOutline(for rect: CGRect) {
+        let radius = SelectionChromeStyle.frameCornerRadius
+        let framePath = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        SelectionChromeStyle.frameNSColor.setStroke()
+        framePath.lineWidth = SelectionChromeStyle.frameLineWidth
+        framePath.stroke()
+    }
+
     private func drawFloatingLabel(_ text: String, near rect: CGRect) {
         let label = text as NSString
         let attributes: [NSAttributedString.Key: Any] = [
@@ -608,8 +618,8 @@ final class SelectionOverlayCanvasView: NSView {
             height: size.height + padding.height * 2
         )
 
-        let chip = NSBezierPath(roundedRect: backgroundRect, xRadius: 11, yRadius: 11)
-        NSColor.black.withAlphaComponent(0.68).setFill()
+        let chip = NSBezierPath(roundedRect: backgroundRect, xRadius: 10, yRadius: 10)
+        NSColor.black.withAlphaComponent(0.72).setFill()
         chip.fill()
 
         label.draw(

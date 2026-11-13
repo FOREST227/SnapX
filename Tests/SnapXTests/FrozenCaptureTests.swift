@@ -124,6 +124,55 @@ final class FrozenCaptureTests: XCTestCase {
     }
 
     @MainActor
+    func testRecropKeepsAnnotationsAndTranslatesThemIntoTheNewCrop() throws {
+        let frame = try makeFrame(red: 1, blue: 0)
+        let coordinator = CaptureCoordinator(captureDisplayImage: { _ in frame })
+        coordinator.captureTimingMode = .liveSelect
+        XCTAssertTrue(coordinator.prepareCapture(displayIDs: [1]))
+        let request = ScreenshotCaptureRequest.area(ScreenSelection(
+            displayID: 1, rect: CGRect(x: 2, y: 2, width: 4, height: 4), scaleFactor: 1))
+        let result = try XCTUnwrap(coordinator.imageForCapture(request: request))
+        let fullFrame = try XCTUnwrap(coordinator.resolveFullScreenImage(displayID: 1).image)
+        let model = ScreenshotEditorViewModel(image: result, cropInfo: ScreenshotEditorCropInfo(
+            fullScreenImage: fullFrame, selectionRect: CGRect(x: 2, y: 2, width: 4, height: 4),
+            displayID: 1, scaleFactor: 1))
+        model.addAnnotation(.line(LineAnnotation(start: CGPoint(x: 1, y: 1), end: CGPoint(x: 3, y: 3),
+            color: .red, lineWidth: 4)))
+        // Shift the crop down-right by one point: old (2,2,4,4) -> new (3,3,3,3).
+        model.recrop(newRect: CGRect(x: 3, y: 3, width: 3, height: 3),
+                     oldRect: CGRect(x: 2, y: 2, width: 4, height: 4))
+        model.editorCropRect = CGRect(x: 3, y: 3, width: 3, height: 3)
+        XCTAssertEqual(model.annotations.count, 1)
+        guard case let .line(line) = model.annotations[0] else {
+            return XCTFail("line annotation should survive recrop")
+        }
+        XCTAssertEqual(line.start, CGPoint(x: 0, y: 0))
+        XCTAssertEqual(line.end, CGPoint(x: 2, y: 2))
+
+        // A mark that falls completely outside the next crop is dropped.
+        model.addAnnotation(.pen(PenAnnotation(points: [CGPoint(x: -50, y: -50)],
+            color: .red, lineWidth: 4)))
+        model.recrop(newRect: CGRect(x: 4, y: 4, width: 2, height: 2),
+                     oldRect: CGRect(x: 3, y: 3, width: 3, height: 3))
+        model.editorCropRect = CGRect(x: 4, y: 4, width: 2, height: 2)
+        XCTAssertEqual(model.annotations.count, 1)
+        guard case .line = model.annotations[0] else {
+            return XCTFail("visible annotation should survive the second recrop")
+        }
+
+        // Recrop is undoable: image, annotations and crop frame all come back.
+        model.undoLastAnnotation()
+        model.editorCropRect = try XCTUnwrap(model.restoredCropRect)
+        XCTAssertEqual(model.image.size, NSSize(width: 3, height: 3))
+        XCTAssertEqual(model.annotations.count, 2)
+        XCTAssertEqual(model.restoredCropRect, CGRect(x: 3, y: 3, width: 3, height: 3))
+        model.redoLastAnnotation()
+        XCTAssertEqual(model.image.size, NSSize(width: 2, height: 2))
+        XCTAssertEqual(model.annotations.count, 1)
+        XCTAssertEqual(model.restoredCropRect, CGRect(x: 4, y: 4, width: 2, height: 2))
+    }
+
+    @MainActor
     func testConfirmationExcludesOverlayWithoutReadingCompositedScreen() throws {
         let frame = try makeFrame(red: 1, blue: 0)
         var capturedReferences: [CGWindowID] = []

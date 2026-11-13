@@ -8,6 +8,9 @@ final class PinnedScreenshotWindowController: NSWindowController, NSWindowDelega
     private let zoom = HistoryZoomState()
     private let interaction = PinnedInteractionState()
     private var passthroughHandleWindow: NSPanel?
+    private var targetAlphaValue: CGFloat = 1
+    private var didPlayEntranceFade = false
+    private var isEntranceFading = false
 
     init(image: NSImage, onClose: @escaping (PinnedScreenshotWindowController) -> Void) {
         self.image = image
@@ -27,7 +30,7 @@ final class PinnedScreenshotWindowController: NSWindowController, NSWindowDelega
         let root = PinnedScreenshotView(item: HistoryItem(image: image, date: Date()), zoom: zoom, interaction: interaction,
             onTogglePassthrough: { [weak self] in self?.toggleMousePassthrough() },
             onCopy: { [weak self] in self?.copyImage() },
-            onClose: { [weak self] in self?.close() })
+            onClose: { [weak self] in self?.closeWithFade() })
             .frame(minWidth: 80, minHeight: 60)
         let host = NSHostingView(rootView: root)
         host.sizingOptions = [.minSize]
@@ -50,10 +53,58 @@ final class PinnedScreenshotWindowController: NSWindowController, NSWindowDelega
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
         updatePassthroughHandle()
+        playEntranceFadeIfNeeded()
+    }
+    private func playEntranceFadeIfNeeded() {
+        guard !didPlayEntranceFade, let window else { return }
+        didPlayEntranceFade = true
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            window.alphaValue = targetAlphaValue
+            return
+        }
+        isEntranceFading = true
+        window.alphaValue = 0
+        let targetAlpha = targetAlphaValue
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            window.animator().alphaValue = targetAlpha
+        }, completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isEntranceFading = false
+                self.window?.alphaValue = self.targetAlphaValue
+            }
+        })
     }
     func windowDidMove(_ notification: Notification) { positionPassthroughHandle() }
     func windowDidResize(_ notification: Notification) { positionPassthroughHandle() }
-    func setWindowOpacity(_ opacity: Double) { window?.alphaValue = CGFloat(min(max(opacity, 0.25), 1)) }
+    func setWindowOpacity(_ opacity: Double) {
+        targetAlphaValue = CGFloat(min(max(opacity, 0.25), 1))
+        // A live retarget wins over the entrance fade; after it, set directly.
+        if isEntranceFading {
+            window?.animator().alphaValue = targetAlphaValue
+        } else {
+            window?.alphaValue = targetAlphaValue
+        }
+    }
+    func closeWithFade() {
+        guard let window,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            window?.close()
+            return
+        }
+        isEntranceFading = false
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.window?.close()
+            }
+        })
+    }
     var isMousePassthroughEnabled: Bool { interaction.isPassthrough }
     func setMousePassthrough(_ enabled: Bool) {
         interaction.isPassthrough = enabled

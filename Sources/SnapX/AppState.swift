@@ -68,7 +68,7 @@ final class AppState: ObservableObject {
         isEdgeSnappingEnabled = UserDefaults.standard.bool(forKey: "experimentalEdgeSnapping")
 
         let savedMode = UserDefaults.standard.string(forKey: "captureTimingMode")
-            .flatMap { CaptureTimingMode(rawValue: $0) } ?? .liveSelect
+            .flatMap { CaptureTimingMode(rawValue: $0) } ?? .freezeFirst
         captureTimingMode = savedMode
         edgeSnappingRange = EdgeSnapRange.load()
         captureCoordinator.edgeSnappingRange = CGFloat(edgeSnappingRange)
@@ -135,6 +135,13 @@ final class AppState: ObservableObject {
     func refreshPermissionStates() {
         refreshPermissionStatus()
         refreshAccessibilityPermissionStatus()
+    }
+
+    /// Test/preview hook for panel layout snapshots; not used by the app.
+    func applyPanelPreviewState(permissionsGranted: Bool, pinnedCount: Int) {
+        permissionStatus = permissionsGranted ? .granted : .needsPermission
+        isAccessibilityPermissionGranted = permissionsGranted
+        self.pinnedCount = pinnedCount
     }
 
     func requestScreenCaptureAccess() {

@@ -218,6 +218,66 @@ struct DraftArrow {
     var controlPoint: CGPoint? = nil
 }
 
+extension ScreenshotEditorAnnotation {
+    /// Recropping shifts the image's origin; annotations follow the content.
+    func translated(by offset: CGSize) -> ScreenshotEditorAnnotation {
+        func move(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: point.x + offset.width, y: point.y + offset.height)
+        }
+        switch self {
+        case let .rectangle(a):
+            return .rectangle(RectangleAnnotation(rect: a.rect.offsetBy(dx: offset.width, dy: offset.height),
+                color: a.color, lineWidth: a.lineWidth, lineStyle: a.lineStyle))
+        case let .highlight(a):
+            var moved = a
+            moved.points = a.points.map(move)
+            return .highlight(moved)
+        case let .arrow(a):
+            return .arrow(ArrowAnnotation(start: move(a.start), end: move(a.end), color: a.color,
+                lineWidth: a.lineWidth, controlPoint: a.controlPoint.map(move)))
+        case let .line(a):
+            return .line(LineAnnotation(start: move(a.start), end: move(a.end),
+                color: a.color, lineWidth: a.lineWidth))
+        case let .pen(a):
+            return .pen(PenAnnotation(points: a.points.map(move), color: a.color, lineWidth: a.lineWidth))
+        case let .text(a):
+            return .text(TextAnnotation(origin: move(a.origin), text: a.text, color: a.color,
+                fontSize: a.fontSize, isBold: a.isBold, isItalic: a.isItalic,
+                isUnderline: a.isUnderline, maxWidth: a.maxWidth))
+        case let .mosaic(a):
+            return .mosaic(MosaicAnnotation(points: a.points.map(move), brushSize: a.brushSize))
+        }
+    }
+
+    /// Generous bounds including stroke spread, used to drop marks the new
+    /// crop can no longer contain at all.
+    var canvasBounds: CGRect {
+        switch self {
+        case let .rectangle(a):
+            return a.rect.insetBy(dx: -a.lineWidth / 2, dy: -a.lineWidth / 2)
+        case let .highlight(a):
+            return Self.pointBounds(a.points).insetBy(dx: -a.brushSize / 2, dy: -a.brushSize / 2)
+        case let .arrow(a):
+            var points = [a.start, a.end]
+            if let control = a.controlPoint { points.append(control) }
+            return Self.pointBounds(points).insetBy(dx: -a.lineWidth, dy: -a.lineWidth)
+        case let .line(a):
+            return Self.pointBounds([a.start, a.end]).insetBy(dx: -a.lineWidth / 2, dy: -a.lineWidth / 2)
+        case let .pen(a):
+            return Self.pointBounds(a.points).insetBy(dx: -a.lineWidth / 2, dy: -a.lineWidth / 2)
+        case let .text(a):
+            return CGRect(origin: a.origin, size: CGSize(width: a.maxWidth ?? 320, height: a.fontSize * 2))
+        case let .mosaic(a):
+            return Self.pointBounds(a.points).insetBy(dx: -a.brushSize / 2, dy: -a.brushSize / 2)
+        }
+    }
+
+    private static func pointBounds(_ points: [CGPoint]) -> CGRect {
+        guard let first = points.first else { return .null }
+        return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
+    }
+}
+
 struct DraftLine {
     let start: CGPoint
     let end: CGPoint

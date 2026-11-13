@@ -623,7 +623,7 @@ private struct HotKeyEditorRow: View {
         feedbackTask?.cancel()
         didSave = true
         feedbackTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled else { return }
             didSave = false
         }

@@ -14,6 +14,9 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
     private var keyMonitor: Any?
     private var extractionTask: Task<Void, Never>?
 
+    // Measured fitting width of the fixed-size toolbar (constant across tools).
+    private static let toolbarContentWidth: CGFloat = 619
+
     init(
         image: NSImage,
         sourceRect: CGRect?,
@@ -126,7 +129,11 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             if self.viewModel.hasActiveTextDraft { return event }
 
             if event.keyCode == UInt16(kVK_Escape) {
-                self.close()
+                if self.viewModel.isColorPalettePresented {
+                    self.viewModel.colorPaletteDismissRequest = true
+                } else {
+                    self.close()
+                }
                 return nil
             }
 
@@ -179,7 +186,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             viewModel.showToast("已保存到 \(url.lastPathComponent)")
         } catch {
             NSSound.beep()
-            viewModel.showToast("保存失败")
+            viewModel.showToast("保存失败", kind: .warning)
         }
     }
 
@@ -189,7 +196,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         let image = viewModel.renderedImage()
         guard let cgImage = image.cgImageRepresentation else {
             NSSound.beep()
-            viewModel.showToast("无法提取文字")
+            viewModel.showToast("无法提取文字", kind: .warning)
             return
         }
 
@@ -219,7 +226,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
                     self.extractionTask = nil
                     self.viewModel.cancelTextExtraction()
                     NSSound.beep()
-                    self.viewModel.showToast("提取失败：\(error.localizedDescription)", duration: 8)
+                    self.viewModel.showToast("提取失败：\(error.localizedDescription)", kind: .warning, duration: 8)
                 }
             }
         }
@@ -232,7 +239,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         extractionTask = nil
         guard !text.isEmpty else {
             NSSound.beep()
-            viewModel.showToast("未识别到文字")
+            viewModel.showToast("未识别到文字", kind: .warning)
             return
         }
         ScreenshotEditorFileIO.copyTextToPasteboard(text, to: textPasteboard)
@@ -249,7 +256,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         let screenFrame = targetScreen.frame
         let visibleFrame = targetScreen.visibleFrame
         let outerMargin: CGFloat = 8
-        let toolbarWidth: CGFloat = min(max(544, imageSize.width * 0.52), visibleFrame.width - 24)
+        let toolbarWidth: CGFloat = min(Self.toolbarContentWidth, visibleFrame.width - 24)
         let toolbarHeight: CGFloat = 56
         let toolbarSpacing: CGFloat = 14
 

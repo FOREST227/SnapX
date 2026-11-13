@@ -114,7 +114,7 @@ final class CaptureCoordinator {
     private var displayHotKeyHint = "⌘⇧F"
     var isEdgeSnappingEnabled = false
     var edgeSnappingRange = CGFloat(EdgeSnapRange.defaultValue)
-    var captureTimingMode: CaptureTimingMode = .liveSelect
+    var captureTimingMode: CaptureTimingMode = .freezeFirst
     private var frozenScreenImages: [CGDirectDisplayID: CGImage] = [:]
     private var activeCaptureTimingMode: CaptureTimingMode?
     private let captureLogger = Logger(subsystem: "com.wuqicheng.snapboard", category: "CaptureTiming")

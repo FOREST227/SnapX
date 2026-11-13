@@ -10,6 +10,8 @@ struct MenuBarContentView: View {
             permissionCard
             pinControls
             actionButtons
+            Divider().opacity(0.5)
+            secondaryActions
             footer
         }
         .padding(AppPanelStyle.padding)
@@ -34,32 +36,40 @@ struct MenuBarContentView: View {
     @ViewBuilder
     private var permissionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: allPermissionsGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                    .foregroundStyle(allPermissionsGranted ? AppPanelStyle.accent : AppPanelStyle.warning)
-                Text(allPermissionsGranted ? "权限已就绪" : "权限状态")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-
-            permissionStatusRow(
-                title: "屏幕录制",
-                isGranted: appState.permissionStatus == .granted,
-                grantedDetail: "截图功能可用",
-                missingDetail: "未授权会导致无法截图"
-            )
-
-            permissionStatusRow(
-                title: "辅助功能",
-                isGranted: appState.isAccessibilityPermissionGranted,
-                grantedDetail: "Command 全局快捷键可用",
-                missingDetail: "未授权时快捷键可能无响应"
-            )
-
             if allPermissionsGranted {
-                Text("全局快捷键 \(appState.hotKeySummaryDisplay)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.shield.fill")
+                        .foregroundStyle(AppPanelStyle.accent)
+                    Text("权限已就绪")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text(appState.hotKeySummaryDisplay)
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(AppPanelStyle.secondaryText)
+                }
             } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .foregroundStyle(AppPanelStyle.warning)
+                    Text("权限状态")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                permissionStatusRow(
+                    title: "屏幕录制",
+                    isGranted: appState.permissionStatus == .granted,
+                    grantedDetail: "截图功能可用",
+                    missingDetail: "未授权会导致无法截图"
+                )
+
+                permissionStatusRow(
+                    title: "辅助功能",
+                    isGranted: appState.isAccessibilityPermissionGranted,
+                    grantedDetail: "Command 全局快捷键可用",
+                    missingDetail: "未授权时快捷键可能无响应"
+                )
+
                 HStack(spacing: 8) {
                     if appState.permissionStatus == .needsPermission {
                         Button("授权屏幕录制", action: appState.requestScreenCaptureAccess)
@@ -83,7 +93,7 @@ struct MenuBarContentView: View {
     }
 
     private var actionButtons: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Button(action: appState.startFramedCapture) {
                 actionLabel(
                     title: "框选截图",
@@ -110,42 +120,43 @@ struct MenuBarContentView: View {
                 )
             }
             .buttonStyle(MenuActionButtonStyle())
+        }
+    }
 
-            Button(role: .destructive, action: appState.clearPinnedShots) {
-                actionLabel(title: "清空所有钉图", shortcut: "", systemImage: "rectangle.stack.badge.minus")
-            }
-            .buttonStyle(MenuActionButtonStyle(emphasis: .destructive))
-            .disabled(appState.pinnedCount == 0)
-
+    private var secondaryActions: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Button(action: appState.openSettings) {
-                Label("设置", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity)
+                secondaryLabel(title: "设置", systemImage: "gearshape")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(MenuSecondaryButtonStyle())
 
             Button(action: openGitHubReleases) {
-                Label("GitHub 发布页", systemImage: "arrow.up.right.square")
-                    .frame(maxWidth: .infinity)
+                secondaryLabel(title: "GitHub 发布页", systemImage: "arrow.up.right.square")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(MenuSecondaryButtonStyle())
 
             Button(action: appState.restart) {
-                Label("重启 SnapX", systemImage: "arrow.clockwise.circle")
-                    .frame(maxWidth: .infinity)
+                secondaryLabel(title: "重启 SnapX", systemImage: "arrow.clockwise.circle")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(MenuSecondaryButtonStyle())
 
             Button(action: appState.quit) {
-                Label("退出 SnapX", systemImage: "power")
-                    .frame(maxWidth: .infinity)
+                secondaryLabel(title: "退出 SnapX", systemImage: "power")
             }
-            .buttonStyle(.borderless)
-            .padding(.top, 2)
+            .buttonStyle(MenuSecondaryButtonStyle(destructive: true))
         }
     }
 
     private var pinControls: some View {
         VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("钉图")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("当前 \(appState.pinnedCount) 张")
+                    .panelDescription(size: 12)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Label("钉图透明度", systemImage: "circle.lefthalf.filled")
@@ -173,6 +184,18 @@ struct MenuBarContentView: View {
                     .panelDescription(size: 11.5)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack {
+                Spacer()
+                Button(action: appState.clearPinnedShots) {
+                    Label("清空钉图", systemImage: "rectangle.stack.badge.minus")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .foregroundStyle(Color(nsColor: .systemRed))
+                .opacity(appState.pinnedCount == 0 ? 0.4 : 1)
+                .disabled(appState.pinnedCount == 0)
             }
         }
         .padding(12)
@@ -210,13 +233,21 @@ struct MenuBarContentView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func secondaryLabel(title: String, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .frame(width: 18)
+            Text(title)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var footer: some View {
         HStack {
-            Text("当前钉图 \(appState.pinnedCount) 张")
-                .panelDescription(size: 12.5)
             Spacer()
             Text("v\(appVersion)")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11))
                 .foregroundStyle(AppPanelStyle.secondaryText)
         }
     }
@@ -290,7 +321,43 @@ struct MenuActionButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.primary.opacity(isEnabled && emphasis == .normal ? 0.12 : 0), lineWidth: 0.5)
             }
+            .modifier(MenuHoverHighlight(color: emphasis == .primary ? Color.white.opacity(0.10) : Color.primary.opacity(0.06), radius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .opacity(configuration.isPressed && isEnabled ? 0.75 : (isEnabled ? 1 : 0.55))
+    }
+}
+
+struct MenuSecondaryButtonStyle: ButtonStyle {
+    var destructive = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13))
+            .foregroundStyle(!isEnabled ? Color.secondary : (destructive ? Color(nsColor: .systemRed) : Color.primary))
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 28)
+            .modifier(MenuHoverHighlight(color: Color.primary.opacity(0.06), radius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .opacity(configuration.isPressed && isEnabled ? 0.75 : (isEnabled ? 1 : 0.55))
+    }
+}
+
+private struct MenuHoverHighlight: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(isHovering ? color : .clear)
+                    .allowsHitTesting(false)
+            }
+            .onHover { isHovering = $0 }
+            .animation(AppMotion.quick(reduceMotion), value: isHovering)
     }
 }

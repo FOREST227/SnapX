@@ -41,8 +41,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         ThemeManager.shared.preserveSystemAppearance(for: button.window)
 
-        let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "SnapX")
-        image?.isTemplate = true
+        let image = Self.makeStatusIcon()
+        image.isTemplate = true
+        image.accessibilityDescription = "SnapX"
 
         button.image = image
         button.imagePosition = .imageOnly
@@ -50,6 +51,40 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         button.action = #selector(handleStatusItemClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.toolTip = "SnapX"
+    }
+
+    /// Template glyph matching the app icon: four viewfinder corner brackets
+    /// around an X. Drawn rather than an SF Symbol so the status item is
+    /// recognizable among other camera/viewfinder icons.
+    private static func makeStatusIcon() -> NSImage {
+        NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            NSColor.black.setStroke()
+
+            let inset: CGFloat = 2.25
+            let arm: CGFloat = 4.25
+            let brackets = NSBezierPath()
+            brackets.lineWidth = 1.5
+            brackets.lineCapStyle = .round
+            for (cornerX, cornerY) in [(inset, 18 - inset), (18 - inset, 18 - inset),
+                                       (inset, inset), (18 - inset, inset)] {
+                let sx: CGFloat = cornerX < 9 ? 1 : -1
+                let sy: CGFloat = cornerY < 9 ? 1 : -1
+                brackets.move(to: CGPoint(x: cornerX + arm * sx, y: cornerY))
+                brackets.line(to: CGPoint(x: cornerX, y: cornerY))
+                brackets.line(to: CGPoint(x: cornerX, y: cornerY + arm * sy))
+            }
+            brackets.stroke()
+
+            let cross = NSBezierPath()
+            cross.lineWidth = 1.7
+            cross.lineCapStyle = .round
+            cross.move(to: CGPoint(x: 6.4, y: 11.6))
+            cross.line(to: CGPoint(x: 11.6, y: 6.4))
+            cross.move(to: CGPoint(x: 11.6, y: 11.6))
+            cross.line(to: CGPoint(x: 6.4, y: 6.4))
+            cross.stroke()
+            return true
+        }
     }
 
     private func configurePopover() {

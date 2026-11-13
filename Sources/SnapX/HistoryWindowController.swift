@@ -194,7 +194,13 @@ struct HistoryDetailView: View {
                     Image(systemName: "photo.on.rectangle.angled").font(.system(size: 40))
                     Text("暂无截图历史")
                     Text("截图后可在这里浏览、复制和钉住图片").font(.system(size: 12))
-                    if expanded { Button("返回历史", action: onExpand) }
+                    if expanded {
+                        Button("返回历史", action: onExpand)
+                    } else {
+                        Button("框选截图", action: appState.startFramedCapture)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.regular)
+                    }
                 }.foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let notice {

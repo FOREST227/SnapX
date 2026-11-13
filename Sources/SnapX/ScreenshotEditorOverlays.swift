@@ -6,17 +6,15 @@ import SwiftUI
 struct ScreenshotEditorBackdropView: View {
     let screenSize: CGSize
     let imageRect: CGRect
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Canvas { context, size in
             var path = Path(CGRect(origin: .zero, size: size))
-            path.addPath(Path(roundedRect: imageRect.insetBy(dx: -1, dy: -1), cornerRadius: 8))
+            path.addPath(Path(imageRect.insetBy(dx: -1, dy: -1)))
 
-            let opacity = colorScheme == .dark ? 0.65 : 0.48
             context.fill(
                 path,
-                with: .color(Color.black.opacity(opacity)),
+                with: .color(Color.black.opacity(SelectionChromeStyle.dimOpacity)),
                 style: FillStyle(eoFill: true)
             )
         }
@@ -34,8 +32,8 @@ struct SelectionFrameChromeView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .stroke(borderColor, lineWidth: 2)
+            RoundedRectangle(cornerRadius: SelectionChromeStyle.frameCornerRadius, style: .continuous)
+                .stroke(borderColor, lineWidth: SelectionChromeStyle.frameLineWidth)
 
             ForEach(Array(handleCenters.enumerated()), id: \.offset) { _, center in
                 Rectangle()
@@ -162,20 +160,22 @@ struct MosaicMaskView: View {
 
 struct ToastView: View {
     let message: String
-    @State private var isAnimating = false
+    var kind: ToastKind = .success
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: kind == .warning ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(kind == .warning ? Color(nsColor: .systemYellow) : AppPanelStyle.success)
 
             Text(message)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .frame(maxWidth: 360)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.black.opacity(0.78))
@@ -185,21 +185,13 @@ struct ToastView: View {
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
-        .scaleEffect(isAnimating ? 1 : 0.85)
-        .opacity(isAnimating ? 1 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                isAnimating = true
-            }
-        }
+        .allowsHitTesting(false)
     }
 }
 
 // MARK: - Tool Shortcuts Overlay
 
 struct ToolShortcutsOverlay: View {
-    @State private var isAnimating = false
-
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
@@ -228,13 +220,7 @@ struct ToolShortcutsOverlay: View {
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 8)
-        .scaleEffect(isAnimating ? 1 : 0.9)
-        .opacity(isAnimating ? 1 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                isAnimating = true
-            }
-        }
+        .allowsHitTesting(false)
     }
 
     private func shortcutItem(key: String, tool: String) -> some View {

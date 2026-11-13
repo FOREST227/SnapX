@@ -66,6 +66,30 @@ enum AppPanelStyle {
     static var background: some View { PanelBackground() }
 }
 
+/// Shared timing for panel/editor motion. Short, non-bouncy curves keep the
+/// UI feeling immediate; reduce-motion callers get nil (no animation).
+enum AppMotion {
+    static func enter(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
+    }
+    static func exit(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.16)
+    }
+    static func quick(_ reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.16)
+    }
+}
+
+/// The selection chrome must look identical in the capture overlay and the
+/// editor so the transition between them is seamless.
+enum SelectionChromeStyle {
+    static let dimOpacity: CGFloat = 0.48
+    static let frameNSColor = NSColor(srgbRed: 0.2, green: 0.86, blue: 0.56, alpha: 1)
+    static var frameColor: Color { Color(nsColor: frameNSColor) }
+    static let frameLineWidth: CGFloat = 2
+    static let frameCornerRadius: CGFloat = 2
+}
+
 private struct PanelBackground: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

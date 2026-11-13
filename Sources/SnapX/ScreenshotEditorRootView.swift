@@ -66,6 +66,20 @@ private struct ToolOptionsAnchorKey: PreferenceKey {
     }
 }
 
+private struct ColorPaletteAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct BubbleHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct ToolbarBubblePointer: Shape {
     func path(in rect: CGRect) -> Path {
         Path { path in
@@ -78,9 +92,12 @@ private struct ToolbarBubblePointer: Shape {
 }
 
 struct ScreenshotEditorRootView: View {
-    private static let selectionFrameColor = Color(red: 0.2, green: 0.86, blue: 0.56)
+    private static let toolShortcutHintDefaultsKey = "SnapXToolShortcutHintShownCount"
+    private static let colorPaletteWidth: CGFloat = 336
+    private static let colorPaletteFallbackHeight: CGFloat = 54
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var viewModel: ScreenshotEditorViewModel
     let layout: ScreenshotEditorLayout
     let onClose: () -> Void
@@ -101,6 +118,8 @@ struct ScreenshotEditorRootView: View {
     // Native NSTextView focus is managed by InlineTextEditor, not SwiftUI .focused.
     @State private var isTextFieldFocused = false
     @State private var showToolShortcuts: Bool = false
+    @State private var showColorPalette: Bool = false
+    @State private var measuredBubbleHeight: CGFloat?
 
     @State private var currentImageRect: CGRect
     @State private var cropAdjustRect: CGRect?
@@ -131,6 +150,7 @@ struct ScreenshotEditorRootView: View {
         self.onSave = onSave
         self.onExtractText = onExtractText
         _currentImageRect = State(initialValue: layout.imageRect)
+        viewModel.editorCropRect = layout.imageRect
     }
 
     private let rectangleLineWidth: CGFloat = 4
@@ -155,11 +175,6 @@ struct ScreenshotEditorRootView: View {
                 imageRect: displayImageRect
             )
 
-            imageStage
-                .frame(width: currentImageRect.width, height: currentImageRect.height)
-                .offset(x: currentImageRect.minX, y: currentImageRect.minY)
-                .opacity(isCropDragging ? 0.3 : 1)
-
             if isCropDragging, let adjustRect = cropAdjustRect, let fullImg = viewModel.cropInfo?.fullScreenImage {
                 Image(nsImage: fullImg)
                     .resizable()
@@ -173,10 +188,22 @@ struct ScreenshotEditorRootView: View {
 
                 SelectionFrameChromeView(
                     size: adjustRect.size,
-                    borderColor: Self.selectionFrameColor
+                    borderColor: SelectionChromeStyle.frameColor
                 )
                 .offset(x: adjustRect.minX, y: adjustRect.minY)
             }
+
+            imageStage
+                .frame(width: currentImageRect.width, height: currentImageRect.height)
+                .overlay(alignment: .top) {
+                    if let toast = viewModel.toast {
+                        ToastView(message: toast.message, kind: toast.kind)
+                            .padding(.top, 12)
+                            .transition(toastTransition)
+                            .id(toast.message)
+                    }
+                }
+                .offset(x: currentImageRect.minX, y: currentImageRect.minY)
 
             if viewModel.canAdjustCrop {
                 cropHandleOverlay
@@ -186,42 +213,59 @@ struct ScreenshotEditorRootView: View {
                 .fixedSize()
                 .frame(width: layout.toolbarRect.width, height: layout.toolbarRect.height)
                 .offset(x: layout.toolbarRect.minX, y: toolbarTop)
-
-            if let toastMessage = viewModel.toastMessage {
-                ToastView(message: toastMessage)
-                    .padding(.top, 18)
-                    .padding(.trailing, 18)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity).animation(.spring(response: 0.35, dampingFraction: 0.75)),
-                        removal: .move(edge: .top).combined(with: .opacity).animation(.smooth(duration: 0.2))
-                    ))
-            }
+                .animation(AppMotion.enter(reduceMotion), value: toolbarTop)
 
             if showToolShortcuts {
                 ToolShortcutsOverlay()
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.9).combined(with: .opacity).animation(.spring(response: 0.4, dampingFraction: 0.75)),
-                        removal: .scale(scale: 0.95).combined(with: .opacity).animation(.smooth(duration: 0.2))
-                    ))
+                    .transition(shortcutOverlayTransition)
+                    .position(x: currentImageRect.midX, y: currentImageRect.midY)
             }
         }
         .frame(width: layout.screenSize.width, height: layout.screenSize.height)
         .background(Color.clear)
+        .animation(viewModel.toast != nil ? AppMotion.enter(reduceMotion) : AppMotion.exit(reduceMotion), value: viewModel.toast)
+        .animation(showToolShortcuts ? AppMotion.enter(reduceMotion) : AppMotion.exit(reduceMotion), value: showToolShortcuts)
+        .animation(showsToolOptionsBubble ? AppMotion.enter(reduceMotion) : AppMotion.exit(reduceMotion), value: showsToolOptionsBubble)
+        .animation(showColorPalette ? AppMotion.enter(reduceMotion) : AppMotion.exit(reduceMotion), value: showColorPalette)
         .overlayPreferenceValue(ToolOptionsAnchorKey.self) { anchors in
             GeometryReader { geometry in
-                if let anchor = anchors[viewModel.activeTool] {
+                if showsToolOptionsBubble, let anchor = anchors[viewModel.activeTool] {
                     let buttonRect = geometry[anchor]
                     let left = min(max(buttonRect.minX, 12), max(12, geometry.size.width - 220 - 12))
                     toolOptionsBubble(arrowOffset: min(max(buttonRect.midX - left - 6, 8), 200))
-                        .position(x: left + 110, y: buttonRect.maxY + 8 + toolOptionsHeight / 2)
+                        .transition(bubbleTransition)
+                        .position(x: left + 110, y: buttonRect.maxY + 8 + currentBubbleHeight(fallback: fallbackToolOptionsHeight) / 2)
                 }
             }
+        }
+        .overlayPreferenceValue(ColorPaletteAnchorKey.self) { anchor in
+            GeometryReader { geometry in
+                if showColorPalette, let anchor {
+                    let buttonRect = geometry[anchor]
+                    let width = Self.colorPaletteWidth
+                    let left = min(max(buttonRect.midX - width / 2, 12), max(12, geometry.size.width - width - 12))
+                    colorPaletteBubble(arrowOffset: min(max(buttonRect.midX - left - 6, 8), width - 20))
+                        .transition(bubbleTransition)
+                        .position(x: left + width / 2, y: buttonRect.maxY + 8 + currentBubbleHeight(fallback: Self.colorPaletteFallbackHeight) / 2)
+                }
+            }
+        }
+        .onPreferenceChange(BubbleHeightKey.self) { height in
+            measuredBubbleHeight = height > 0 ? height : nil
         }
         .onChange(of: viewModel.activeTool) { _ in
             draftHighlight = nil
             draftArrow = nil
             draftArrowPoints = []
+            showColorPalette = false
+            showToolShortcuts = false
             commitTextDraftIfNeeded()
+        }
+        .onChange(of: viewModel.annotations.count) { _ in
+            showToolShortcuts = false
+        }
+        .onChange(of: showColorPalette) { presented in
+            viewModel.isColorPalettePresented = presented
         }
         .onChange(of: viewModel.textDraftDiscardRequest) { shouldDiscard in
             if shouldDiscard {
@@ -229,16 +273,29 @@ struct ScreenshotEditorRootView: View {
                 viewModel.textDraftDiscardRequest = false
             }
         }
-        .onAppear {
-            withAnimation(.smooth(duration: 0.25).delay(0.05)) {
-                showToolShortcuts = true
+        .onChange(of: viewModel.colorPaletteDismissRequest) { shouldDismiss in
+            if shouldDismiss {
+                showColorPalette = false
+                viewModel.colorPaletteDismissRequest = false
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_200_000_000)
-                withAnimation(.smooth(duration: 0.25)) {
-                    showToolShortcuts = false
-                }
+        }
+        .onChange(of: currentImageRect) { rect in
+            viewModel.editorCropRect = rect
+        }
+        .onChange(of: viewModel.restoredCropRect) { restored in
+            if let restored {
+                currentImageRect = restored
+                viewModel.restoredCropRect = nil
             }
+        }
+        .task {
+            let shownCount = UserDefaults.standard.integer(forKey: Self.toolShortcutHintDefaultsKey)
+            guard shownCount < 3 else { return }
+            UserDefaults.standard.set(shownCount + 1, forKey: Self.toolShortcutHintDefaultsKey)
+            showToolShortcuts = true
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            guard !Task.isCancelled else { return }
+            showToolShortcuts = false
         }
     }
 
@@ -246,9 +303,12 @@ struct ScreenshotEditorRootView: View {
 
     private var imageStage: some View {
         ZStack(alignment: .topLeading) {
+            // During crop adjustment only the base image dims; annotation
+            // marks stay at full opacity over the fullscreen preview.
             Image(nsImage: viewModel.image)
                 .resizable()
                 .frame(width: currentImageRect.width, height: currentImageRect.height)
+                .opacity(isCropDragging ? 0.2 : 1)
 
             if let pixelatedPreviewImage = viewModel.pixelatedPreviewImage,
                hasVisibleMosaicContent {
@@ -302,7 +362,8 @@ struct ScreenshotEditorRootView: View {
             if let index = selectedTextIndex, editingTextIndex == nil,
                case let .text(text) = viewModel.annotations[safe: index] {
                 let rect = textBounds(movedText ?? text)
-                Rectangle().stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     .frame(width: rect.width * currentDisplayScale, height: rect.height * currentDisplayScale)
                     .position(x: rect.midX * currentDisplayScale, y: rect.midY * currentDisplayScale)
                     .allowsHitTesting(false)
@@ -323,7 +384,7 @@ struct ScreenshotEditorRootView: View {
     private var selectionChrome: some View {
         SelectionFrameChromeView(
             size: currentImageRect.size,
-            borderColor: Self.selectionFrameColor
+            borderColor: SelectionChromeStyle.frameColor
         )
     }
 
@@ -403,7 +464,7 @@ struct ScreenshotEditorRootView: View {
 
     // MARK: - Toolbar
 
-    private var toolbar: some View {
+    var toolbar: some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
                 ForEach(ScreenshotEditorTool.allCases) { tool in
@@ -422,28 +483,9 @@ struct ScreenshotEditorRootView: View {
                 }
             }
 
-            if viewModel.activeTool.supportsColorSelection {
-                toolbarDivider
+            toolbarDivider
 
-                HStack(spacing: 10) {
-                    ForEach(ScreenshotAnnotationColor.allCases) { color in
-                        Button {
-                            viewModel.selectedColor = color
-                        } label: {
-                            Circle()
-                                .fill(color.swiftUIColor)
-                                .frame(width: 18, height: 18)
-                                .overlay(
-                                    Circle()
-                                        .stroke(viewModel.selectedColor == color ? Color.white : Color.clear, lineWidth: 2)
-                                )
-                                .shadow(color: .black.opacity(0.16), radius: 3, y: 2)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
+            colorButton
 
             toolbarDivider
 
@@ -503,16 +545,110 @@ struct ScreenshotEditorRootView: View {
         Int(((1 - viewModel.highlightOpacity) * 100).rounded())
     }
 
-    private var toolOptionsHeight: CGFloat { viewModel.activeTool == .highlight ? 160 : 96 }
+    private var hasToolOptions: Bool {
+        viewModel.activeTool == .highlight || viewModel.activeTool == .mosaic || viewModel.activeTool == .text
+    }
+
+    private var showsToolOptionsBubble: Bool {
+        hasToolOptions && !showColorPalette
+    }
+
+    private var fallbackToolOptionsHeight: CGFloat { viewModel.activeTool == .highlight ? 160 : 96 }
+
+    private func currentBubbleHeight(fallback: CGFloat) -> CGFloat {
+        measuredBubbleHeight ?? fallback
+    }
 
     private var toolbarTop: CGFloat {
-        guard viewModel.activeTool == .highlight || viewModel.activeTool == .mosaic || viewModel.activeTool == .text else { return layout.toolbarRect.minY }
+        let bubbleHeight: CGFloat? = if showColorPalette {
+            currentBubbleHeight(fallback: Self.colorPaletteFallbackHeight)
+        } else if hasToolOptions {
+            currentBubbleHeight(fallback: fallbackToolOptionsHeight)
+        } else {
+            nil
+        }
+        guard let bubbleHeight else { return layout.toolbarRect.minY }
         // Keep the property bubble below its tool even when the toolbar is near the screen edge.
-        let availableTop = layout.screenSize.height - layout.toolbarRect.height - 8 - toolOptionsHeight - 12
+        let availableTop = layout.screenSize.height - layout.toolbarRect.height - 8 - bubbleHeight - 12
         return min(layout.toolbarRect.minY, max(12, availableTop))
     }
 
-    private func toolOptionsBubble(arrowOffset: CGFloat) -> some View {
+    private var bubbleTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -4))
+    }
+
+    private var toastTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6))
+    }
+
+    private var shortcutOverlayTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97))
+    }
+
+    private var colorButton: some View {
+        Button {
+            showColorPalette.toggle()
+        } label: {
+            Circle()
+                .fill(viewModel.selectedColor.swiftUIColor)
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1))
+                .frame(width: 16, height: 16)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(buttonBackground(isSelected: showColorPalette, accent: false,
+                            isDisabled: !viewModel.activeTool.supportsColorSelection))
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.activeTool.supportsColorSelection)
+        .opacity(viewModel.activeTool.supportsColorSelection ? 1 : 0.45)
+        .help("颜色")
+        .accessibilityLabel("颜色")
+        .anchorPreference(key: ColorPaletteAnchorKey.self, value: .bounds) { $0 }
+    }
+
+    func colorPaletteBubble(arrowOffset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ToolbarBubblePointer()
+                .fill(.regularMaterial)
+                .frame(width: 12, height: 6)
+                .padding(.leading, arrowOffset)
+            HStack(spacing: 8) {
+                ForEach(ScreenshotAnnotationColor.allCases) { color in
+                    Button {
+                        viewModel.selectedColor = color
+                        showColorPalette = false
+                    } label: {
+                        Circle()
+                            .fill(color.swiftUIColor)
+                            .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
+                            .frame(width: 20, height: 20)
+                            .overlay {
+                                if viewModel.selectedColor == color {
+                                    Circle()
+                                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                                        .frame(width: 26, height: 26)
+                                }
+                            }
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(color.rawValue)
+                }
+            }
+            .padding(10)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.5))
+        }
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: BubbleHeightKey.self, value: proxy.size.height)
+        })
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+    }
+
+    func toolOptionsBubble(arrowOffset: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ToolbarBubblePointer()
                 .fill(.regularMaterial)
@@ -576,13 +712,16 @@ struct ScreenshotEditorRootView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.16), lineWidth: 0.5))
         }
-        .frame(width: 220, height: toolOptionsHeight, alignment: .topLeading)
+        .frame(width: 220)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: BubbleHeightKey.self, value: proxy.size.height)
+        })
         .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
     }
 
     private var toolbarDivider: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.15))
             .frame(width: 1, height: 24)
     }
 
@@ -609,11 +748,11 @@ struct ScreenshotEditorRootView: View {
                 }
             }
                 .frame(width: 18, height: 18, alignment: .center)
-                .foregroundStyle(buttonForeground(isSelected: isSelected, accent: accent || destructive, isDisabled: isDisabled))
+                .foregroundStyle(buttonForeground(isSelected: isSelected, accent: accent, destructive: destructive, isDisabled: isDisabled))
                 .frame(width: 30, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(destructive && !isDisabled ? ScreenshotAnnotationColor.red.swiftUIColor : buttonBackground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
+                        .fill(buttonBackground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
                 )
         }
         .buttonStyle(.plain)
@@ -637,9 +776,13 @@ struct ScreenshotEditorRootView: View {
         .help(title)
     }
 
-    private func buttonForeground(isSelected: Bool, accent: Bool, isDisabled: Bool) -> Color {
+    private func buttonForeground(isSelected: Bool, accent: Bool, destructive: Bool, isDisabled: Bool) -> Color {
         if isDisabled {
             return colorScheme == .dark ? Color.white.opacity(0.32) : Color.primary.opacity(0.28)
+        }
+
+        if destructive {
+            return Color(nsColor: .systemRed)
         }
 
         if accent || isSelected {
@@ -1002,7 +1145,8 @@ struct ScreenshotEditorRootView: View {
             onHeightChange: { textEditorHeight = $0 }
         )
         .frame(width: width, height: height)
-        .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1).padding(-3).allowsHitTesting(false))
+        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .stroke(Color.accentColor, lineWidth: 1).padding(-3).allowsHitTesting(false))
         .position(x: origin.x + width / 2, y: origin.y + height / 2)
     }
 
@@ -1096,6 +1240,7 @@ struct ScreenshotEditorRootView: View {
                 let point = value.startLocation
                 if cropDragEdge == nil {
                     viewModel.cancelTextExtraction()
+                    commitTextDraftIfNeeded()
                     let targetRect = isCropDragging ? (cropAdjustRect ?? currentImageRect) : currentImageRect
                     cropDragEdge = cropEdge(at: point, in: targetRect)
                     cropDragStart = point
@@ -1214,7 +1359,7 @@ struct ScreenshotEditorRootView: View {
 
         guard newSelectionRect.width >= 8, newSelectionRect.height >= 8 else { return }
 
-        viewModel.recrop(newRect: newSelectionRect)
+        viewModel.recrop(newRect: newSelectionRect, oldRect: currentImageRect)
     }
 
     // MARK: - Coordinate Conversion
