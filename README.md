@@ -88,9 +88,9 @@ SnapX 是一款常驻 macOS 菜单栏的截图工具。选取屏幕上的一块�
 
 ### 截图与原位编辑
 
-<img src="docs/images/editor-preview.png" width="880" alt="SnapX 编辑器界面演示：截图内容与标注工具栏">
+<img src="docs/images/editor-preview-bc0f854d.png" width="880" alt="SnapX v0.7.0 编辑器界面：截图选区与下方标注工具栏">
 
-编辑器界面演示，内容为示例素材，图示为旧版工具外观。**v0.5.0 的荧光笔已改为连续涂抹，箭头已改为平滑弧线，浅色工具栏也已更新。**
+编辑器界面演示，内容为示例素材。v0.7.0 的标注工具栏已更新为毛玻璃样式。
 
 ### 桌面钉图
 
