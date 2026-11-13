@@ -47,11 +47,11 @@ enum AppPanelStyle {
     static var groupFill: Color { Color.primary.opacity(0.05) }
     static func backgroundStart(isDark: Bool) -> NSColor {
         isDark ? NSColor(srgbRed: 0.24, green: 0.25, blue: 0.27, alpha: 1)
-            : NSColor(srgbRed: 0.96, green: 0.97, blue: 0.985, alpha: 1)
+            : NSColor(srgbRed: 0.965, green: 0.968, blue: 0.976, alpha: 1)
     }
     static func backgroundEnd(isDark: Bool) -> NSColor {
         isDark ? NSColor(srgbRed: 0.065, green: 0.075, blue: 0.09, alpha: 1)
-            : NSColor(srgbRed: 0.77, green: 0.79, blue: 0.82, alpha: 1)
+            : NSColor(srgbRed: 0.905, green: 0.912, blue: 0.925, alpha: 1)
     }
     static var backgroundStartColor: NSColor {
         NSColor(name: "SnapXBackgroundStart") { appearance in
@@ -114,15 +114,6 @@ private struct PanelGradient: View {
             context.fill(area, with: .linearGradient(
                 Gradient(colors: [start, Color(nsColor: AppPanelStyle.backgroundEnd(isDark: isDark)).opacity(0.95)]),
                 startPoint: .zero, endPoint: CGPoint(x: AppPanelStyle.width, y: 720)))
-            if !isDark {
-                context.fill(area, with: .linearGradient(
-                    Gradient(stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .white.opacity(0.42), location: 0.38),
-                        .init(color: .clear, location: 0.72),
-                        .init(color: .clear, location: 1)
-                    ]), startPoint: CGPoint(x: -100, y: 0), endPoint: CGPoint(x: 360, y: 650)))
-            }
         }
     }
 }
@@ -130,7 +121,7 @@ private struct PanelGradient: View {
 /// Subordinate copy shared by the menu and settings panels.
 extension View {
     func panelDescription(size: CGFloat = 12) -> some View {
-        font(.system(size: size, weight: .light))
+        font(.system(size: size))
             .foregroundStyle(AppPanelStyle.descriptionText)
     }
 }

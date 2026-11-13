@@ -14,9 +14,9 @@ struct SettingsView: View {
                     .accessibilityHidden(true)
             }
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 22) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("设置").font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Text("设置").font(.system(size: 17, weight: .medium))
                         Spacer()
                     }
                     captureSection
@@ -25,8 +25,8 @@ struct SettingsView: View {
                     permissionSection
                     experimentalSection
                     Text("设置自动保存")
-                        .font(.system(size: 12))
-                        .foregroundStyle(AppPanelStyle.secondaryText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity)
                 }
                 .padding(AppPanelStyle.padding)
@@ -47,13 +47,15 @@ struct SettingsView: View {
 
     private var captureSection: some View {
         SettingsSection(title: "截图方式", detail: "选择画面固定的时刻") {
-            VStack(spacing: 10) {
+            VStack(spacing: 0) {
                 ForEach(CaptureTimingMode.allCases) { mode in
                     CaptureTimingModeButton(mode: mode, isSelected: appState.captureTimingMode == mode) {
                         appState.captureTimingMode = mode
                     }
+                    if mode != CaptureTimingMode.allCases.last { rowDivider }
                 }
             }
+            .settingsGroup()
         }
     }
 
@@ -61,8 +63,8 @@ struct SettingsView: View {
         SettingsSection(title: "实验性功能") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
-                    Label("智能边缘吸附", systemImage: "viewfinder")
-                        .font(.system(size: 13, weight: .medium))
+                    Text("智能边缘吸附")
+                        .font(.system(size: 13))
                     Spacer(minLength: 0)
                     Toggle("启用实验性智能边缘吸附", isOn: $appState.isEdgeSnappingEnabled)
                         .labelsHidden()
@@ -75,7 +77,7 @@ struct SettingsView: View {
                         Spacer()
                         Text("\(Int(appState.edgeSnappingRange))pt")
                             .monospacedDigit()
-                            .foregroundStyle(AppPanelStyle.accent)
+                            .foregroundStyle(.secondary)
                         Button {
                             appState.setEdgeSnappingRange(EdgeSnapRange.defaultValue)
                         } label: {
@@ -87,10 +89,11 @@ struct SettingsView: View {
                         .help("恢复默认 16pt")
                         .accessibilityLabel("恢复默认吸附范围 16pt")
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12))
                     Slider(value: Binding(get: { appState.edgeSnappingRange },
                                           set: { appState.setEdgeSnappingRange($0) }),
                            in: EdgeSnapRange.allowed, step: 1)
+                        .controlSize(.small)
                         .accessibilityLabel("吸附范围")
                         .accessibilityValue("\(Int(appState.edgeSnappingRange))点")
                     HStack {
@@ -99,17 +102,17 @@ struct SettingsView: View {
                         Text("32pt · 宽松")
                     }
                     .font(.system(size: 11))
-                    .foregroundStyle(AppPanelStyle.secondaryText)
+                    .foregroundStyle(.tertiary)
                 }
                 .disabled(!appState.isEdgeSnappingEnabled)
                 Text("靠近边缘时显示蓝色起点，按下后锁定；拖动框选会贴合附近边界。按住 Option（⌥）可临时关闭吸附。")
-                    .panelDescription(size: 12)
+                    .panelDescription(size: 11.5)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("默认关闭；识别可能不准。支持常见圆角气泡，外留约 2pt；不会自动选中整张表格。")
                     .panelDescription(size: 11)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(14)
+            .padding(12)
             .settingsGroup()
         }
     }
@@ -130,7 +133,8 @@ struct SettingsView: View {
             }
             .settingsGroup()
             Text("点击按键框录入，至少包含一个修饰键。录入时全局快捷键暂停，Esc 取消。")
-                .panelDescription(size: 12)
+                .padding(.horizontal, 2)
+                .panelDescription(size: 11.5)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -143,7 +147,7 @@ struct SettingsView: View {
                     Text("外观")
                     ThemeSegmentedControl(selection: $appState.currentTheme)
                 }
-                .padding(14)
+                .padding(12)
                 rowDivider
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -151,7 +155,7 @@ struct SettingsView: View {
                         Text(appState.launchAtLoginStatusMessage.isEmpty
                              ? "登录 Mac 后自动运行 SnapX"
                              : appState.launchAtLoginStatusMessage)
-                            .panelDescription(size: 12)
+                            .panelDescription(size: 11.5)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
@@ -161,9 +165,9 @@ struct SettingsView: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .controlSize(.small)
+                    .controlSize(.mini)
                 }
-                .padding(14)
+                .padding(12)
             }
             .font(.system(size: 13))
             .settingsGroup()
@@ -185,11 +189,14 @@ struct SettingsView: View {
             }
             .settingsGroup()
             Text("授权后返回此页面，状态会自动刷新。")
-                .panelDescription(size: 12)
+                .padding(.horizontal, 2)
+                .panelDescription(size: 11.5)
         }
     }
 
-    private var rowDivider: some View { Divider().padding(.horizontal, 14) }
+    private var rowDivider: some View {
+        Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 0.5).padding(.leading, 12)
+    }
 
     private func refreshStatus() {
         appState.refreshPermissionStates()
@@ -208,13 +215,14 @@ private struct SettingsSection<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(.secondary)
                 if let detail {
-                    Text(detail).font(.system(size: 12)).foregroundStyle(AppPanelStyle.secondaryText)
+                    Text(detail).font(.system(size: 11.5)).foregroundStyle(.tertiary)
                 }
             }
+            .padding(.horizontal, 2)
             content()
         }
     }
@@ -222,8 +230,9 @@ private struct SettingsSection<Content: View>: View {
 
 private extension View {
     func settingsGroup() -> some View {
-        background(AppPanelStyle.groupFill, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+        background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
     }
 }
 
@@ -238,37 +247,29 @@ private struct CaptureTimingModeButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text(mode.title).font(.system(size: 13, weight: .semibold))
-                    Spacer(minLength: 0)
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isSelected ? AppPanelStyle.accent : Color.secondary.opacity(0.5))
-                }
-                HStack(spacing: 6) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                        Text(step)
-                            .font(.system(size: 11, weight: step == "冻结" ? .semibold : .regular))
-                            .foregroundStyle(AppPanelStyle.secondaryText)
-                        if index < steps.count - 1 {
-                            Image(systemName: "arrow.right").font(.system(size: 9)).foregroundStyle(AppPanelStyle.secondaryText)
-                        }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? AnyShapeStyle(AppPanelStyle.accent) : AnyShapeStyle(.tertiary))
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(mode.title).font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                        Spacer(minLength: 0)
+                        Text(steps.joined(separator: " → "))
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
                     }
+                    Text(mode.description)
+                        .panelDescription(size: 11.5)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .accessibilityHidden(true)
-                Text(mode.description)
-                    .panelDescription(size: 12)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
             }
-            .padding(14)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? AppPanelStyle.selectionFill : AppPanelStyle.groupFill,
-                        in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(isSelected ? AppPanelStyle.selectionBorder : Color.primary.opacity(0.1), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(mode.title)
@@ -292,9 +293,9 @@ private struct ThemeSegmentedControl: View {
                         Image(systemName: theme.icon).font(.system(size: 11, weight: .medium))
                         Text(theme.displayName).font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundStyle(selection == theme ? AppPanelStyle.accent : AppPanelStyle.secondaryText)
+                    .foregroundStyle(selection == theme ? Color.primary : AppPanelStyle.secondaryText)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 32)
+                    .frame(height: 28)
                     .contentShape(Capsule())
                     .background {
                         if selection == theme {
@@ -339,34 +340,33 @@ private struct PermissionSettingRow: View {
     let openSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title).font(.system(size: 13))
-                Spacer()
-                if isGranted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(AppPanelStyle.success)
-                        .font(.system(size: 12, weight: .medium))
-                        .help("已授权")
-                        .accessibilityLabel("\(title)已授权")
-                } else {
-                    Label("未授权", systemImage: "exclamationmark.circle")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppPanelStyle.warning)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(title).font(.system(size: 13))
+                    Circle()
+                        .fill(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
+                        .frame(width: 6, height: 6)
+                        .help(isGranted ? "已授权" : "未授权")
+                    if !isGranted {
+                        Text("未授权")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(AppPanelStyle.warning)
+                    }
                 }
-            }
-            HStack(spacing: 12) {
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(title)\(isGranted ? "已授权" : "未授权")")
                 Text(detail)
-                    .panelDescription(size: 12)
+                    .panelDescription(size: 11.5)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button(isGranted ? "管理" : "去授权", action: openSettings)
-                    .buttonStyle(PanelNeutralButtonStyle())
-                    .fixedSize()
-                    .accessibilityLabel("在系统设置中管理\(title)权限")
             }
+            Spacer(minLength: 0)
+            Button(isGranted ? "管理" : "去授权", action: openSettings)
+                .buttonStyle(PanelNeutralButtonStyle())
+                .fixedSize()
+                .accessibilityLabel("在系统设置中管理\(title)权限")
         }
-        .padding(14)
+        .padding(12)
     }
 }
 
@@ -521,10 +521,10 @@ private struct HotKeyEditorRow: View {
                             }
                         }
                     }
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12.5, weight: .regular))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(width: 116, height: 30)
+                        .frame(width: 108, height: 26)
                         .background(AppPanelStyle.controlFill, in: RoundedRectangle(cornerRadius: AppPanelStyle.controlCornerRadius))
                         .overlay {
                             if !errorMessage.isEmpty {
@@ -569,8 +569,9 @@ private struct HotKeyEditorRow: View {
                 .frame(width: 26, height: 30)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 7)
         .background(ShortcutDraftEscapeHandler(enabled: !errorMessage.isEmpty, onCancel: cancelRecording)
             .allowsHitTesting(false).accessibilityHidden(true))
         .onDisappear {

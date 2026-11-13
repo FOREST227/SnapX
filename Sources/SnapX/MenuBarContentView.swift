@@ -3,203 +3,226 @@ import SwiftUI
 @MainActor
 struct MenuBarContentView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             header
-            permissionCard
+                .padding(.bottom, 14)
+            if !allPermissionsGranted {
+                permissionNotice
+                    .padding(.bottom, 14)
+            }
+            captureActions
+            PanelHairline()
+                .padding(.vertical, 12)
             pinControls
-            actionButtons
-            Divider().opacity(0.5)
-            secondaryActions
+            PanelHairline()
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             footer
         }
-        .padding(AppPanelStyle.padding)
+        .padding(.horizontal, 14)
+        .padding(.top, 16)
+        .padding(.bottom, 10)
         .frame(width: AppPanelStyle.width)
-        .background(AppPanelStyle.background)
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 4)
         .tint(AppPanelStyle.accent)
         .onAppear {
             appState.refreshPermissionStates()
+            withAnimation(AppMotion.enter(reduceMotion)) { hasAppeared = true }
         }
+        .onDisappear { hasAppeared = false }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("SnapX")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-            Text("快速截屏、标注、钉图")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(AppPanelStyle.secondaryText)
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SnapX")
+                    .font(.system(size: 17, weight: .medium))
+                Text("快速截屏、标注、钉图")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if allPermissionsGranted {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(AppPanelStyle.success)
+                        .frame(width: 6, height: 6)
+                    Text("已就绪")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                .help("屏幕录制与辅助功能均已授权")
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("权限已就绪")
+            }
         }
+        .padding(.horizontal, 2)
     }
 
-    @ViewBuilder
-    private var permissionCard: some View {
+    private var permissionNotice: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if allPermissionsGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundStyle(AppPanelStyle.accent)
-                    Text("权限已就绪")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Text(appState.hotKeySummaryDisplay)
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(AppPanelStyle.secondaryText)
+            Label("需要授权后才能正常使用", systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(AppPanelStyle.warning)
+
+            permissionStatusRow(
+                title: "屏幕录制",
+                isGranted: appState.permissionStatus == .granted,
+                missingDetail: "未授权会导致无法截图"
+            )
+            permissionStatusRow(
+                title: "辅助功能",
+                isGranted: appState.isAccessibilityPermissionGranted,
+                missingDetail: "未授权时快捷键可能无响应"
+            )
+
+            HStack(spacing: 8) {
+                if appState.permissionStatus == .needsPermission {
+                    Button("授权屏幕录制", action: appState.requestScreenCaptureAccess)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                 }
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.shield.fill")
-                        .foregroundStyle(AppPanelStyle.warning)
-                    Text("权限状态")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-
-                permissionStatusRow(
-                    title: "屏幕录制",
-                    isGranted: appState.permissionStatus == .granted,
-                    grantedDetail: "截图功能可用",
-                    missingDetail: "未授权会导致无法截图"
-                )
-
-                permissionStatusRow(
-                    title: "辅助功能",
-                    isGranted: appState.isAccessibilityPermissionGranted,
-                    grantedDetail: "Command 全局快捷键可用",
-                    missingDetail: "未授权时快捷键可能无响应"
-                )
-
-                HStack(spacing: 8) {
-                    if appState.permissionStatus == .needsPermission {
-                        Button("授权屏幕录制", action: appState.requestScreenCaptureAccess)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                    }
-
-                    if !appState.isAccessibilityPermissionGranted {
-                        Button("授权辅助功能", action: appState.requestAccessibilityAccess)
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                    }
+                if !appState.isAccessibilityPermissionGranted {
+                    Button("授权辅助功能", action: appState.requestAccessibilityAccess)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                 }
             }
         }
         .padding(12)
-        .background(
-            AppPanelStyle.groupFill,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppPanelStyle.warning.opacity(0.09), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private var actionButtons: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func permissionStatusRow(title: String, isGranted: Bool, missingDetail: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isGranted ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.system(size: 12.5))
+            Spacer(minLength: 8)
+            Text(isGranted ? "已授权" : missingDetail)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)\(isGranted ? "已授权" : "未授权")")
+    }
+
+    private var captureActions: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Button(action: appState.startFramedCapture) {
-                actionLabel(
-                    title: "框选截图",
-                    shortcut: appState.framedHotKeyDisplay,
-                    systemImage: "camera.viewfinder"
-                )
+                menuLabel(title: "框选截图", shortcut: appState.framedHotKeyDisplay, systemImage: "camera.viewfinder")
             }
-            .buttonStyle(MenuActionButtonStyle(emphasis: .primary))
+            .buttonStyle(MenuPrimaryButtonStyle())
+            .padding(.bottom, 4)
 
             Button(action: appState.startDisplayCapture) {
-                actionLabel(
-                    title: "全屏截图",
-                    shortcut: appState.displayHotKeyDisplay,
-                    systemImage: "rectangle.inset.filled"
-                )
+                menuLabel(title: "全屏截图", shortcut: appState.displayHotKeyDisplay, systemImage: "rectangle.dashed")
             }
-            .buttonStyle(MenuActionButtonStyle())
+            .buttonStyle(MenuRowButtonStyle())
 
             Button(action: appState.openHistory) {
-                actionLabel(
-                    title: "截图历史",
-                    shortcut: appState.historyHotKeyDisplay,
-                    systemImage: "clock.arrow.circlepath"
-                )
+                menuLabel(title: "截图历史", shortcut: appState.historyHotKeyDisplay, systemImage: "clock.arrow.circlepath")
             }
-            .buttonStyle(MenuActionButtonStyle())
+            .buttonStyle(MenuRowButtonStyle())
         }
     }
 
-    private var secondaryActions: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Button(action: appState.openSettings) {
-                secondaryLabel(title: "设置", systemImage: "gearshape")
-            }
-            .buttonStyle(MenuSecondaryButtonStyle())
-
-            Button(action: openGitHubReleases) {
-                secondaryLabel(title: "GitHub 发布页", systemImage: "arrow.up.right.square")
-            }
-            .buttonStyle(MenuSecondaryButtonStyle())
-
-            Button(action: appState.restart) {
-                secondaryLabel(title: "重启 SnapX", systemImage: "arrow.clockwise.circle")
-            }
-            .buttonStyle(MenuSecondaryButtonStyle())
-
-            Button(action: appState.quit) {
-                secondaryLabel(title: "退出 SnapX", systemImage: "power")
-            }
-            .buttonStyle(MenuSecondaryButtonStyle(destructive: true))
+    private func menuLabel(title: String, shortcut: String, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13))
+                .frame(width: 18)
+            Text(title)
+            Spacer()
+            Text(shortcut)
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .opacity(0.6)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var pinControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("钉图")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
                 Spacer()
-                Text("当前 \(appState.pinnedCount) 张")
-                    .panelDescription(size: 12)
+                Button("清空", action: appState.clearPinnedShots)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(appState.pinnedCount == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(AppPanelStyle.error))
+                    .disabled(appState.pinnedCount == 0)
+                    .help("关闭所有钉图")
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("钉图透明度", systemImage: "circle.lefthalf.filled")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Text("\(Int(appState.pinOpacity * 100))%")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppPanelStyle.secondaryText)
-                }
-
+            HStack(spacing: 10) {
+                Text("透明度")
+                    .font(.system(size: 13))
                 Slider(value: pinOpacityBinding, in: 0.25 ... 1)
+                    .controlSize(.small)
+                    .accessibilityLabel("钉图透明度")
+                Text("\(Int(appState.pinOpacity * 100))%")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, alignment: .trailing)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("允许钉图鼠标穿透")
-                        .font(.system(size: 13, weight: .semibold))
+                    Text("鼠标穿透")
+                        .font(.system(size: 13))
                     Spacer()
                     Toggle("允许钉图鼠标穿透", isOn: mousePassthroughBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.mini)
                         .accessibilityHint("统一设置所有钉图的鼠标穿透；单张钉图可双击左上角图钉单独切换。")
                 }
                 Text("开启后可点击钉图下方的窗口。\n双击钉图左上角图钉可单独切换。")
-                    .panelDescription(size: 11.5)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            HStack {
-                Spacer()
-                Button(action: appState.clearPinnedShots) {
-                    Label("清空钉图", systemImage: "rectangle.stack.badge.minus")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .foregroundStyle(Color(nsColor: .systemRed))
-                .opacity(appState.pinnedCount == 0 ? 0.4 : 1)
-                .disabled(appState.pinnedCount == 0)
             }
         }
-        .padding(12)
-        .background(AppPanelStyle.groupFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 2)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 2) {
+            Text("钉图 \(appState.pinnedCount) 张 · v\(appVersion)")
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 2)
+            Spacer()
+            Button(action: appState.openSettings) { Image(systemName: "gearshape") }
+                .buttonStyle(MenuIconButtonStyle())
+                .help("设置")
+                .accessibilityLabel("设置")
+            Button(action: openGitHubReleases) { Image(systemName: "arrow.up.right.square") }
+                .buttonStyle(MenuIconButtonStyle())
+                .help("GitHub 发布页")
+                .accessibilityLabel("GitHub 发布页")
+            Button(action: appState.quit) { Image(systemName: "power") }
+                .buttonStyle(MenuIconButtonStyle())
+                .help("退出 SnapX（右键可重启）")
+                .accessibilityLabel("退出 SnapX")
+                .contextMenu {
+                    Button("重启 SnapX", action: appState.restart)
+                    Button("退出 SnapX", action: appState.quit)
+                }
+        }
     }
 
     private var pinOpacityBinding: Binding<Double> {
@@ -220,38 +243,6 @@ struct MenuBarContentView: View {
         )
     }
 
-    private func actionLabel(title: String, shortcut: String, systemImage: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .frame(width: 18)
-            Text(title)
-            Spacer()
-            Text(shortcut)
-                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                .opacity(0.85)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func secondaryLabel(title: String, systemImage: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .frame(width: 18)
-            Text(title)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Text("v\(appVersion)")
-                .font(.system(size: 11))
-                .foregroundStyle(AppPanelStyle.secondaryText)
-        }
-    }
-
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
@@ -265,82 +256,71 @@ struct MenuBarContentView: View {
             NSWorkspace.shared.open(url)
         }
     }
+}
 
-    private func permissionStatusRow(title: String, isGranted: Bool, grantedDetail: String, missingDetail: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(isGranted ? AppPanelStyle.success : AppPanelStyle.warning)
-                .help(isGranted ? "已授权" : "未授权")
-                .accessibilityLabel("\(title)\(isGranted ? "已授权" : "未授权")")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                Text(isGranted ? grantedDetail : missingDetail)
-                    .panelDescription(size: 11.5)
-            }
-
-            Spacer(minLength: 8)
-
-            if !isGranted {
-                Text("未授权")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AppPanelStyle.warning)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(AppPanelStyle.groupFill, in: Capsule())
-            }
-        }
+private struct PanelHairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 0.5)
+            .padding(.horizontal, 2)
     }
 }
 
-/// Shared geometry keeps primary, secondary, and disabled actions aligned.
-struct MenuActionButtonStyle: ButtonStyle {
-    enum Emphasis { case normal, primary, destructive }
-    var emphasis: Emphasis = .normal
+/// The single filled action in the panel; slightly desaturated so it anchors
+/// the layout without shouting over the native material.
+struct MenuPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
-
-    private var fill: Color {
-        guard isEnabled else { return AppPanelStyle.groupFill }
-        switch emphasis {
-        case .normal: return AppPanelStyle.groupFill
-        case .primary: return AppPanelStyle.accent
-        case .destructive: return Color(nsColor: .systemRed)
-        }
-    }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(isEnabled ? (emphasis == .normal ? Color.primary : Color.white) : Color.secondary)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isEnabled && emphasis == .normal ? 0.12 : 0), lineWidth: 0.5)
+                    .fill(AppPanelStyle.accent)
+                    .saturation(0.86)
             }
-            .modifier(MenuHoverHighlight(color: emphasis == .primary ? Color.white.opacity(0.10) : Color.primary.opacity(0.06), radius: 8))
+            .modifier(MenuHoverHighlight(color: Color.white.opacity(0.10), radius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .opacity(configuration.isPressed && isEnabled ? 0.75 : (isEnabled ? 1 : 0.55))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5)
     }
 }
 
-struct MenuSecondaryButtonStyle: ButtonStyle {
-    var destructive = false
+/// Borderless menu row: only the hover highlight reveals the hit area.
+struct MenuRowButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13))
-            .foregroundStyle(!isEnabled ? Color.secondary : (destructive ? Color(nsColor: .systemRed) : Color.primary))
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 28)
-            .modifier(MenuHoverHighlight(color: Color.primary.opacity(0.06), radius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .opacity(configuration.isPressed && isEnabled ? 0.75 : (isEnabled ? 1 : 0.55))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.10 : 0))
+            }
+            .modifier(MenuHoverHighlight(color: Color.primary.opacity(0.07), radius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .opacity(isEnabled ? 1 : 0.5)
+    }
+}
+
+struct MenuIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12.5))
+            .foregroundStyle(.secondary)
+            .frame(width: 26, height: 26)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : 0))
+            }
+            .modifier(MenuHoverHighlight(color: Color.primary.opacity(0.07), radius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
@@ -358,6 +338,6 @@ private struct MenuHoverHighlight: ViewModifier {
                     .allowsHitTesting(false)
             }
             .onHover { isHovering = $0 }
-            .animation(AppMotion.quick(reduceMotion), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: isHovering ? 0.12 : 0.18), value: isHovering)
     }
 }
