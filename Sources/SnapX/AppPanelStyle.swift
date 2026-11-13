@@ -82,6 +82,8 @@ enum SelectionChromeStyle {
     static let dimOpacity: CGFloat = 0.48
     static var frameNSColor: NSColor { .controlAccentColor }
     static var frameColor: Color { Color(nsColor: frameNSColor) }
+    /// Edges locked by smart snapping must stand out against the accent frame.
+    static let snappedEdgeNSColor = NSColor(srgbRed: 0.2, green: 0.86, blue: 0.56, alpha: 1)
     static let frameLineWidth: CGFloat = 2
     static let frameCornerRadius: CGFloat = 2
 }

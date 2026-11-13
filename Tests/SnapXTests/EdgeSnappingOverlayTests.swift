@@ -160,3 +160,16 @@ final class EdgeSnappingOverlayTests: XCTestCase {
             provider: XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData)), decode: nil, shouldInterpolate: false, intent: .defaultIntent))
     }
 }
+
+final class SnappedEdgeColorTests: XCTestCase {
+    func testSnappedEdgesStayDistinctFromSelectionFrame() throws {
+        func rgb(_ color: NSColor) throws -> [CGFloat] {
+            let value = try XCTUnwrap(color.usingColorSpace(.sRGB))
+            return [value.redComponent, value.greenComponent, value.blueComponent]
+        }
+        let frame = try rgb(SelectionChromeStyle.frameNSColor)
+        let edge = try rgb(SelectionChromeStyle.snappedEdgeNSColor)
+        let distance = zip(frame, edge).map { abs($0 - $1) }.reduce(0, +)
+        XCTAssertGreaterThan(distance, 0.5, "Snapped edges must remain visible on top of the selection frame")
+    }
+}

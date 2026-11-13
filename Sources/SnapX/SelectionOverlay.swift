@@ -520,7 +520,7 @@ final class SelectionOverlayCanvasView: NSView {
 
     private func drawSnappedEdges() {
         guard let result = snapResult else { return }
-        NSColor.controlAccentColor.setStroke()
+        SelectionChromeStyle.snappedEdgeNSColor.setStroke()
         for edge in result.edges {
             let path = NSBezierPath()
             if edge.axis == .horizontal {
