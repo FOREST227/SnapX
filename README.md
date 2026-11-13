@@ -94,7 +94,7 @@ SnapX 是一款常驻 macOS 菜单栏的截图工具。选取屏幕上的一块�
 
 ### 桌面钉图
 
-<img src="docs/images/pinned-preview.png" width="720" alt="SnapX 钉图穿透模式示例，仅左上角保留蓝色图钉手柄">
+<img src="docs/images/pinned-preview.png" width="720" alt="SnapX 钉图悬停界面：左上角图钉手柄，右上角适配、复制与关闭操作">
 
 钉图视图与穿透手柄的合成展示，图片为演示素材。
 
