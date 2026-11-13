@@ -88,7 +88,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func configurePopover() {
-        let hostingController = NSHostingController(rootView: MenuBarContentView(appState: appState))
+        let hostingController = NSHostingController(rootView: MenuBarContentView(appState: appState, animatesEntrance: true))
         popover.contentViewController = hostingController
         popover.behavior = .transient
         popover.animates = true

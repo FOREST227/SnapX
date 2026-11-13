@@ -5,8 +5,6 @@ enum AppPanelStyle {
     static let width: CGFloat = 320
     static let padding: CGFloat = 18
     static var accent: Color { .accentColor }
-    static var selectionFill: Color { accent.opacity(0.07) }
-    static var selectionBorder: Color { accent }
     static var warning: Color { Color(nsColor: .systemOrange) }
     static var error: Color { Color(nsColor: .systemRed) }
     // Opaque adaptive text avoids low contrast over the panel's darker gradient end.
@@ -44,7 +42,6 @@ enum AppPanelStyle {
         })
     }
     static let lightToolbarButtonFill = Color(.sRGB, red: 223.0 / 255, green: 225.0 / 255, blue: 229.0 / 255, opacity: 1)
-    static var groupFill: Color { Color.primary.opacity(0.05) }
     static func backgroundStart(isDark: Bool) -> NSColor {
         isDark ? NSColor(srgbRed: 0.24, green: 0.25, blue: 0.27, alpha: 1)
             : NSColor(srgbRed: 0.965, green: 0.968, blue: 0.976, alpha: 1)

@@ -3,8 +3,10 @@ import SwiftUI
 @MainActor
 struct MenuBarContentView: View {
     @ObservedObject var appState: AppState
+    /// Only the live popover animates in; snapshots and previews render settled.
+    var animatesEntrance = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hasAppeared = false
+    @State private var hasEntered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -27,15 +29,17 @@ struct MenuBarContentView: View {
         .padding(.top, 16)
         .padding(.bottom, 10)
         .frame(width: AppPanelStyle.width)
-        .opacity(hasAppeared ? 1 : 0)
-        .offset(y: hasAppeared ? 0 : 4)
+        .opacity(isSettled ? 1 : 0)
+        .offset(y: isSettled ? 0 : 4)
         .tint(AppPanelStyle.accent)
         .onAppear {
             appState.refreshPermissionStates()
-            withAnimation(AppMotion.enter(reduceMotion)) { hasAppeared = true }
+            withAnimation(AppMotion.enter(reduceMotion)) { hasEntered = true }
         }
-        .onDisappear { hasAppeared = false }
+        .onDisappear { hasEntered = false }
     }
+
+    private var isSettled: Bool { !animatesEntrance || hasEntered }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
