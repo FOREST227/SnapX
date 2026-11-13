@@ -41,7 +41,6 @@ enum AppPanelStyle {
                 : NSColor(srgbRed: 250.0 / 255, green: 251.0 / 255, blue: 253.0 / 255, alpha: 1)
         })
     }
-    static let lightToolbarButtonFill = Color(.sRGB, red: 223.0 / 255, green: 225.0 / 255, blue: 229.0 / 255, opacity: 1)
     static func backgroundStart(isDark: Bool) -> NSColor {
         isDark ? NSColor(srgbRed: 0.24, green: 0.25, blue: 0.27, alpha: 1)
             : NSColor(srgbRed: 0.965, green: 0.968, blue: 0.976, alpha: 1)
@@ -81,7 +80,7 @@ enum AppMotion {
 /// editor so the transition between them is seamless.
 enum SelectionChromeStyle {
     static let dimOpacity: CGFloat = 0.48
-    static let frameNSColor = NSColor(srgbRed: 0.2, green: 0.86, blue: 0.56, alpha: 1)
+    static var frameNSColor: NSColor { .controlAccentColor }
     static var frameColor: Color { Color(nsColor: frameNSColor) }
     static let frameLineWidth: CGFloat = 2
     static let frameCornerRadius: CGFloat = 2

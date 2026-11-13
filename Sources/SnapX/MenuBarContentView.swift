@@ -218,14 +218,14 @@ struct MenuBarContentView: View {
                 .buttonStyle(MenuIconButtonStyle())
                 .help("GitHub 发布页")
                 .accessibilityLabel("GitHub 发布页")
+            Button(action: appState.restart) { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(MenuIconButtonStyle())
+                .help("重启 SnapX")
+                .accessibilityLabel("重启 SnapX")
             Button(action: appState.quit) { Image(systemName: "power") }
                 .buttonStyle(MenuIconButtonStyle())
-                .help("退出 SnapX（右键可重启）")
+                .help("退出 SnapX")
                 .accessibilityLabel("退出 SnapX")
-                .contextMenu {
-                    Button("重启 SnapX", action: appState.restart)
-                    Button("退出 SnapX", action: appState.quit)
-                }
         }
     }
 
@@ -328,7 +328,8 @@ struct MenuIconButtonStyle: ButtonStyle {
     }
 }
 
-private struct MenuHoverHighlight: ViewModifier {
+/// Hover fill shared by borderless panel and toolbar buttons.
+struct MenuHoverHighlight: ViewModifier {
     let color: Color
     let radius: CGFloat
     @State private var isHovering = false

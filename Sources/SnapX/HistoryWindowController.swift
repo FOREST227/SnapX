@@ -103,7 +103,7 @@ struct HistoryView: View {
                                             .frame(maxWidth: .infinity).frame(height: 94)
                                             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
                                         HStack {
-                                            Text(item.date, style: .time).font(.system(size: 11))
+                                            Text(item.date, style: .time).font(.system(size: 11)).foregroundStyle(.secondary)
                                             Spacer()
                                             if model.selection.selectedIDs.contains(item.id) {
                                                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
@@ -111,9 +111,10 @@ struct HistoryView: View {
                                         }
                                     }
                                     .padding(8)
-                                    .background(model.selection.selectedIDs.contains(item.id) ? Color.accentColor.opacity(0.12) : Color.clear,
-                                                in: RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(model.selection.focusedID == item.id ? Color.accentColor : Color.clear, lineWidth: 2))
+                                    .background(model.selection.selectedIDs.contains(item.id) ? Color.accentColor.opacity(0.10) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(model.selection.focusedID == item.id ? Color.accentColor.opacity(0.85) : Color.clear, lineWidth: 1.5))
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -166,8 +167,11 @@ struct HistoryDetailView: View {
                         Button { copy() } label: { Label(isBatch ? "复制所选" : "复制", systemImage: "doc.on.doc") }
                         Button { for value in targets { appState.pinImage(value.image) }; notice = "已钉住" } label: { Label("钉住", systemImage: "pin") }
                         Button { save(item) } label: { Label("保存", systemImage: "square.and.arrow.down") }.disabled(isBatch)
-                        Button(role: .destructive) { delete() } label: { Image(systemName: "trash") }.help(isBatch ? "删除所选" : "删除当前截图")
                         Spacer(minLength: 0)
+                        Button(role: .destructive) { delete() } label: { Image(systemName: "trash") }
+                            .help(isBatch ? "删除所选" : "删除当前截图")
+                            .accessibilityLabel(isBatch ? "删除所选" : "删除当前截图")
+                        Divider().frame(height: 14)
                         Button(action: onExpand) { Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") }
                             .help(expanded ? "返回历史（Esc）" : "大图预览（空格）")
                     }.buttonStyle(.borderless).font(.system(size: 12))

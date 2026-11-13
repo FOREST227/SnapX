@@ -599,6 +599,7 @@ struct ScreenshotEditorRootView: View {
                         .fill(buttonBackground(isSelected: showColorPalette, accent: false,
                             isDisabled: !viewModel.activeTool.supportsColorSelection))
                 )
+                .modifier(MenuHoverHighlight(color: Color.primary.opacity(0.07), radius: 8))
         }
         .buttonStyle(.plain)
         .disabled(!viewModel.activeTool.supportsColorSelection)
@@ -754,6 +755,7 @@ struct ScreenshotEditorRootView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(buttonBackground(isSelected: isSelected, accent: accent, isDisabled: isDisabled))
                 )
+                .modifier(MenuHoverHighlight(color: accent ? Color.white.opacity(0.12) : Color.primary.opacity(0.07), radius: 8))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -780,32 +782,19 @@ struct ScreenshotEditorRootView: View {
         if isDisabled {
             return colorScheme == .dark ? Color.white.opacity(0.32) : Color.primary.opacity(0.28)
         }
-
-        if destructive {
-            return Color(nsColor: .systemRed)
-        }
-
-        if accent || isSelected {
-            return .white
-        }
-
-        return Color(nsColor: .labelColor).opacity(0.92)
+        if destructive { return Color(nsColor: .systemRed) }
+        if accent { return .white }
+        if isSelected { return .accentColor }
+        return Color(nsColor: .labelColor).opacity(0.85)
     }
 
+    /// Only the selected tool and the Done action carry a fill; idle buttons
+    /// stay bare and reveal their hit area on hover.
     private func buttonBackground(isSelected: Bool, accent: Bool, isDisabled: Bool) -> Color {
-        if isDisabled {
-            return colorScheme == .dark ? Color.white.opacity(0.04) : AppPanelStyle.lightToolbarButtonFill.opacity(0.45)
-        }
-
-        if accent {
-            return Color.accentColor
-        }
-
-        if isSelected {
-            return Color.accentColor.opacity(0.82)
-        }
-
-        return colorScheme == .dark ? Color.white.opacity(0.1) : AppPanelStyle.lightToolbarButtonFill
+        if isDisabled { return .clear }
+        if accent { return .accentColor }
+        if isSelected { return Color.accentColor.opacity(colorScheme == .dark ? 0.24 : 0.14) }
+        return .clear
     }
 
     // MARK: - Drag Gesture
