@@ -15,7 +15,7 @@
   <a href="https://github.com/FOREST227/SnapX/releases/latest"><strong>下载最新版</strong></a> ·
   <a href="#功能特点">功能特点</a> ·
   <a href="#界面展示">界面展示</a> ·
-  <a href="release/v0.5.0/RELEASE.md">v0.5.0 更新说明</a> ·
+  <a href="release/v0.7.0/RELEASE.md">v0.7.0 更新说明</a> ·
   <a href="https://github.com/FOREST227/SnapX/issues">反馈问题</a>
 </p>
 
