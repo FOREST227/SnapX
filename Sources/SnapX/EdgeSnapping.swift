@@ -18,7 +18,19 @@ struct SnapEdge: Equatable, Sendable {
 struct SnapEdgeMap: Sendable {
     let size: CGSize
     let edges: [SnapEdge]
-    var roundedRegions: [CGRect] = []
+    let horizontalEdges: [SnapEdge]
+    let verticalEdges: [SnapEdge]
+    let roundedRegions: [CGRect]
+    let roundedRegionsByArea: [CGRect]
+
+    init(size: CGSize, edges: [SnapEdge], roundedRegions: [CGRect] = []) {
+        self.size = size
+        self.edges = edges
+        self.horizontalEdges = edges.filter { $0.axis == .horizontal }
+        self.verticalEdges = edges.filter { $0.axis == .vertical }
+        self.roundedRegions = roundedRegions
+        self.roundedRegionsByArea = roundedRegions.sorted { $0.width * $0.height < $1.width * $1.height }
+    }
 }
 
 struct EdgeSnapResult: Equatable {
@@ -42,7 +54,7 @@ enum EdgeSnapper {
         let tolerance = CGFloat(EdgeSnapRange.normalized(Double(tolerance)))
         // The corner of a rounded surface is virtual: no visible edge intersects
         // there. Prefer its complete outer rectangle when the pointer is nearby.
-        for region in map.roundedRegions.sorted(by: { $0.width * $0.height < $1.width * $1.height }) {
+        for region in map.roundedRegionsByArea {
             let nearLeft = abs(point.x - region.minX) <= tolerance
             let nearRight = abs(point.x - region.maxX) <= tolerance
             let nearTop = abs(point.y - region.minY) <= tolerance
@@ -56,14 +68,30 @@ enum EdgeSnapper {
         func nearest(_ axis: SnapEdge.Axis) -> SnapEdge? {
             let position = axis == .vertical ? point.x : point.y
             let along = axis == .vertical ? point.y : point.x
-            return map.edges.filter { edge in
-                edge.axis == axis && abs(edge.position - position) <= tolerance
-                    && along >= edge.start - tolerance && along <= edge.end + tolerance
-            }.min { a, b in
-                let da = abs(a.position - position), db = abs(b.position - position)
-                if abs(da - db) > 0.5 { return da < db }
-                return a.strength > b.strength
+            let candidates = axis == .vertical ? map.verticalEdges : map.horizontalEdges
+            var best: SnapEdge?
+            var bestDistance = CGFloat.greatestFiniteMagnitude
+            for edge in candidates {
+                let distance = abs(edge.position - position)
+                guard distance <= tolerance,
+                      along >= edge.start - tolerance,
+                      along <= edge.end + tolerance else { continue }
+                if let current = best {
+                    if abs(distance - bestDistance) > 0.5 {
+                        if distance < bestDistance {
+                            best = edge
+                            bestDistance = distance
+                        }
+                    } else if edge.strength > current.strength {
+                        best = edge
+                        bestDistance = distance
+                    }
+                } else {
+                    best = edge
+                    bestDistance = distance
+                }
             }
+            return best
         }
         return SnapAnchor(rawPoint: point, vertical: nearest(.vertical), horizontal: nearest(.horizontal))
     }
@@ -106,25 +134,49 @@ enum EdgeSnapper {
         guard !bypass, rect.width >= 24, rect.height >= 24 else {
             return EdgeSnapResult(rect: rect, edges: [])
         }
-        if let region = map.roundedRegions.filter({ region in
-            abs(rect.minX - region.minX) <= tolerance && abs(rect.maxX - region.maxX) <= tolerance &&
-            abs(rect.minY - region.minY) <= tolerance && abs(rect.maxY - region.maxY) <= tolerance
-        }).min(by: { a, b in
-            abs(rect.width - a.width) + abs(rect.height - a.height) < abs(rect.width - b.width) + abs(rect.height - b.height)
-        }) {
+        var bestRegion: CGRect?
+        var bestRegionDelta = CGFloat.greatestFiniteMagnitude
+        for region in map.roundedRegions {
+            guard abs(rect.minX - region.minX) <= tolerance,
+                  abs(rect.maxX - region.maxX) <= tolerance,
+                  abs(rect.minY - region.minY) <= tolerance,
+                  abs(rect.maxY - region.maxY) <= tolerance else { continue }
+            let delta = abs(rect.width - region.width) + abs(rect.height - region.height)
+            if delta < bestRegionDelta {
+                bestRegionDelta = delta
+                bestRegion = region
+            }
+        }
+        if let region = bestRegion {
             let padded = paddedRegion(region, size: map.size)
             return EdgeSnapResult(rect: padded, edges: regionEdges(padded), roundedRegion: region)
         }
         func nearest(axis: SnapEdge.Axis, position: CGFloat, start: CGFloat, end: CGFloat) -> SnapEdge? {
-            map.edges.filter { edge in
-                let overlap = max(0, min(end, edge.end) - max(start, edge.start))
-                return edge.axis == axis && abs(edge.position - position) <= tolerance
-                    && overlap >= max(24, (end - start) * 0.55)
-            }.min { a, b in
-                let da = abs(a.position - position), db = abs(b.position - position)
-                if abs(da - db) > 0.5 { return da < db }
-                return a.strength > b.strength
+            let candidates = axis == .vertical ? map.verticalEdges : map.horizontalEdges
+            let minOverlap = max(24, (end - start) * 0.55)
+            var best: SnapEdge?
+            var bestDistance = CGFloat.greatestFiniteMagnitude
+            for edge in candidates {
+                let distance = abs(edge.position - position)
+                guard distance <= tolerance else { continue }
+                let overlap = min(end, edge.end) - max(start, edge.start)
+                guard overlap >= minOverlap else { continue }
+                if let current = best {
+                    if abs(distance - bestDistance) > 0.5 {
+                        if distance < bestDistance {
+                            best = edge
+                            bestDistance = distance
+                        }
+                    } else if edge.strength > current.strength {
+                        best = edge
+                        bestDistance = distance
+                    }
+                } else {
+                    best = edge
+                    bestDistance = distance
+                }
             }
+            return best
         }
         let left = nearest(axis: .vertical, position: rect.minX, start: rect.minY, end: rect.maxY)
         let right = nearest(axis: .vertical, position: rect.maxX, start: rect.minY, end: rect.maxY)
@@ -165,56 +217,70 @@ enum SnapEdgeDetector {
             guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
-            context.interpolationQuality = .high
+            context.interpolationQuality = .medium
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
         guard drawn else { return empty }
         let sx = logicalSize.width / CGFloat(width), sy = logicalSize.height / CGFloat(height)
         var edges: [SnapEdge] = []
-        for axis in [SnapEdge.Axis.horizontal, .vertical] {
-            let horizontal = axis == .horizontal
-            let lines = horizontal ? height : width, length = horizontal ? width : height
-            let alongScale = horizontal ? sx : sy, acrossScale = horizontal ? sy : sx
-            let minLength = max(16, Int(40 / alongScale))
-            let maxGap = max(1, Int(2 / alongScale))
-            for line in 1..<lines {
-                if line % 32 == 0 && Task.isCancelled { return empty }
-                var start = -1, last = -1, hits = 0, total = 0
-                for offset in 0...length {
-                    var difference = 0
-                    if offset < length {
-                        let index = horizontal ? (line * width + offset) * 4 : (offset * width + line) * 4
-                        let previous = index - (horizontal ? width * 4 : 4)
-                        difference = max(abs(Int(pixels[index]) - Int(pixels[previous])),
-                            max(abs(Int(pixels[index + 1]) - Int(pixels[previous + 1])),
-                                abs(Int(pixels[index + 2]) - Int(pixels[previous + 2]))))
-                    }
-                    if difference >= 8 {
-                        if start < 0 { start = offset }
-                        last = offset; hits += 1; total += difference
-                    } else if start >= 0 && (offset - last > maxGap || offset == length) {
-                        let span = last - start + 1
-                        let averageContrast = Double(total) / Double(max(1, hits))
-                        // Subtle dark-panel separators need a lower contrast threshold,
-                        // but must be long and nearly uninterrupted to exclude text/detail.
-                        let weak = averageContrast < 18
-                        let requiredLength = weak ? max(minLength, Int(120 / alongScale)) : minLength
-                        let coverage = weak ? 0.95 : 0.8
-                        if span >= requiredLength && Double(hits) / Double(span) >= coverage {
-                            edges.append(SnapEdge(axis: axis, position: CGFloat(line) * acrossScale,
-                                start: CGFloat(start) * alongScale, end: CGFloat(last + 1) * alongScale,
-                                strength: CGFloat(total) / CGFloat(max(1, hits) * 255),
-                                lowerBound: CGFloat(line) * acrossScale - (factor < 1 ? acrossScale / 2 : 0),
-                                upperBound: CGFloat(line) * acrossScale + (factor < 1 ? acrossScale / 2 : 0)))
+        let rowBytes = width * 4
+        let cancelled = pixels.withUnsafeBufferPointer { buf -> Bool in
+            guard let ptr = buf.baseAddress else { return true }
+            for axis in [SnapEdge.Axis.horizontal, .vertical] {
+                let horizontal = axis == .horizontal
+                let lines = horizontal ? height : width, length = horizontal ? width : height
+                let alongScale = horizontal ? sx : sy, acrossScale = horizontal ? sy : sx
+                let minLength = max(16, Int(40 / alongScale))
+                let weakRequiredLength = max(minLength, Int(120 / alongScale))
+                let maxGap = max(1, Int(2 / alongScale))
+                let prevStride = horizontal ? rowBytes : 4
+                let offsetStride = horizontal ? 4 : rowBytes
+                let halfAcrossOffset: CGFloat = factor < 1 ? acrossScale / 2 : 0
+                for line in 1..<lines {
+                    if line & 31 == 0 && Task.isCancelled { return true }
+                    var start = -1, last = -1, hits = 0, total = 0
+                    let lineBase = horizontal ? line * rowBytes : line * 4
+                    for offset in 0...length {
+                        var difference = 0
+                        if offset < length {
+                            let index = lineBase + offset * offsetStride
+                            let previous = index - prevStride
+                            let dr = abs(Int(ptr[index]) - Int(ptr[previous]))
+                            let dg = abs(Int(ptr[index + 1]) - Int(ptr[previous + 1]))
+                            let db = abs(Int(ptr[index + 2]) - Int(ptr[previous + 2]))
+                            difference = max(dr, max(dg, db))
                         }
-                        start = -1; last = -1; hits = 0; total = 0
+                        if difference >= 8 {
+                            if start < 0 { start = offset }
+                            last = offset; hits += 1; total += difference
+                        } else if start >= 0 && (offset - last > maxGap || offset == length) {
+                            let span = last - start + 1
+                            let averageContrast = Double(total) / Double(max(1, hits))
+                            // Subtle dark-panel separators need a lower contrast threshold,
+                            // but must be long and nearly uninterrupted to exclude text/detail.
+                            let weak = averageContrast < 18
+                            let requiredLength = weak ? weakRequiredLength : minLength
+                            let coverage = weak ? 0.95 : 0.8
+                            if span >= requiredLength && Double(hits) / Double(span) >= coverage {
+                                let pos = CGFloat(line) * acrossScale
+                                edges.append(SnapEdge(axis: axis, position: pos,
+                                    start: CGFloat(start) * alongScale, end: CGFloat(last + 1) * alongScale,
+                                    strength: CGFloat(total) / CGFloat(max(1, hits) * 255),
+                                    lowerBound: pos - halfAcrossOffset,
+                                    upperBound: pos + halfAcrossOffset))
+                            }
+                            start = -1; last = -1; hits = 0; total = 0
+                        }
                     }
                 }
             }
+            return false
         }
+        if cancelled { return empty }
         // Coalesce the two sides of a thin grid line, keeping its full span.
         var merged: [SnapEdge] = []
+        merged.reserveCapacity(edges.count)
         for edge in edges.sorted(by: { a, b in
             if a.axis != b.axis { return a.axis == .horizontal }
             if a.position != b.position { return a.position < b.position }

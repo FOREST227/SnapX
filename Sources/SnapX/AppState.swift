@@ -125,11 +125,17 @@ final class AppState: ObservableObject {
     }
 
     func refreshPermissionStatus() {
-        permissionStatus = captureCoordinator.hasScreenCapturePermission ? .granted : .needsPermission
+        let nextStatus: ScreenCapturePermissionStatus = captureCoordinator.hasScreenCapturePermission ? .granted : .needsPermission
+        if permissionStatus != nextStatus {
+            permissionStatus = nextStatus
+        }
     }
 
     func refreshAccessibilityPermissionStatus() {
-        isAccessibilityPermissionGranted = Self.hasAccessibilityPermission(prompt: false)
+        let granted = Self.hasAccessibilityPermission(prompt: false)
+        if isAccessibilityPermissionGranted != granted {
+            isAccessibilityPermissionGranted = granted
+        }
     }
 
     func refreshPermissionStates() {
@@ -205,12 +211,16 @@ final class AppState: ObservableObject {
         dismissStatusPanel?()
 
         if captureCoordinator.hasScreenCapturePermission || captureCoordinator.requestScreenCapturePermission() {
-            permissionStatus = .granted
+            if permissionStatus != .granted {
+                permissionStatus = .granted
+            }
             action()
             return
         }
 
-        permissionStatus = .needsPermission
+        if permissionStatus != .needsPermission {
+            permissionStatus = .needsPermission
+        }
     }
 
     func clearPinnedShots() {
@@ -427,15 +437,25 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func handleHotKeyAction(_ action: CaptureShortcutAction) {
+        guard !isHotKeyRecordingActive else { return }
+        switch action {
+        case .framed: startFramedCapture()
+        case .display: startDisplayCapture()
+        case .history: openHistory()
+        }
+    }
+
     private func makeHotKeyMonitor(for action: CaptureShortcutAction, configuration: HotKeyConfiguration) -> GlobalHotKeyMonitor {
         GlobalHotKeyMonitor(identifier: action.hotKeyIdentifier, keyCode: configuration.keyCode,
                             modifiers: configuration.modifiers) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isHotKeyRecordingActive else { return }
-                switch action {
-                case .framed: self.startFramedCapture()
-                case .display: self.startDisplayCapture()
-                case .history: self.openHistory()
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.handleHotKeyAction(action)
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    self?.handleHotKeyAction(action)
                 }
             }
         }

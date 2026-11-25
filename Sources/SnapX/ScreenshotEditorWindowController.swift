@@ -69,6 +69,8 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
+        window?.contentView = nil
+        window?.delegate = nil
         onClose()
     }
 
@@ -81,7 +83,7 @@ final class ScreenshotEditorWindowController: NSWindowController, NSWindowDelega
         window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.ignoresMouseEvents = false
-        window.setFrame(layout.screenFrame, display: true)
+        window.setFrame(layout.screenFrame, display: false)
 
         // Apply theme
         ThemeManager.shared.applyTheme(to: window)

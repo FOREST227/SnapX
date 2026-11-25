@@ -36,7 +36,7 @@ final class GlobalHotKeyMonitor {
 
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
-    private var eventTapInterceptor: EventTapHotKeyInterceptor?
+    private var eventTapToken: UUID?
 
     init(identifier: UInt32, keyCode: UInt32, modifiers: HotKeyModifiers, handler: @escaping @Sendable () -> Void) {
         self.keyCode = keyCode
@@ -111,15 +111,13 @@ final class GlobalHotKeyMonitor {
             return .registered
         }
 
-        let interceptor = EventTapHotKeyInterceptor(
+        switch SharedCommandHotKeyEventTap.shared.register(
             keyCode: keyCode,
             modifiers: modifiers,
             handler: handler
-        )
-
-        switch interceptor.start() {
-        case .started:
-            eventTapInterceptor = interceptor
+        ) {
+        case let .started(token):
+            eventTapToken = token
             return .registered
 
         case .requiresAccessibilityPermission:
@@ -132,8 +130,10 @@ final class GlobalHotKeyMonitor {
     }
 
     func unregister() {
-        eventTapInterceptor?.stop()
-        eventTapInterceptor = nil
+        if let eventTapToken {
+            SharedCommandHotKeyEventTap.shared.unregister(token: eventTapToken)
+            self.eventTapToken = nil
+        }
 
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
@@ -152,40 +152,75 @@ final class GlobalHotKeyMonitor {
 }
 
 private enum EventTapRegistrationOutcome {
-    case started
+    case started(UUID)
     case requiresAccessibilityPermission
     case failed(OSStatus)
 }
 
-private final class EventTapHotKeyInterceptor {
-    private let keyCode: UInt32
-    private let modifiers: HotKeyModifiers
-    private let handler: @Sendable () -> Void
-    private let relevantFlags: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+/// Multiplexes all Command-based global hotkeys through a single CGEventTap so
+/// system-wide keystrokes only cross into SnapX once instead of once per shortcut.
+private final class SharedCommandHotKeyEventTap: @unchecked Sendable {
+    static let shared = SharedCommandHotKeyEventTap()
 
+    private struct Binding {
+        let token: UUID
+        let keyCode: UInt32
+        let cgEventFlags: CGEventFlags
+        let handler: @Sendable () -> Void
+    }
+
+    private let lock = NSLock()
+    private let relevantFlags: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift]
+    private var bindings: [Binding] = []
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    init(keyCode: UInt32, modifiers: HotKeyModifiers, handler: @escaping @Sendable () -> Void) {
-        self.keyCode = keyCode
-        self.modifiers = modifiers
-        self.handler = handler
+    private init() {}
+
+    func register(
+        keyCode: UInt32,
+        modifiers: HotKeyModifiers,
+        handler: @escaping @Sendable () -> Void
+    ) -> EventTapRegistrationOutcome {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if eventTap == nil, let failure = startTapLocked() {
+            return failure
+        }
+
+        let token = UUID()
+        bindings.append(Binding(
+            token: token,
+            keyCode: keyCode,
+            cgEventFlags: modifiers.cgEventFlags,
+            handler: handler
+        ))
+        return .started(token)
     }
 
-    func start() -> EventTapRegistrationOutcome {
-        guard eventTap == nil else { return .started }
+    func unregister(token: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
 
+        bindings.removeAll { $0.token == token }
+        if bindings.isEmpty {
+            stopTapLocked()
+        }
+    }
+
+    private func startTapLocked() -> EventTapRegistrationOutcome? {
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else {
                 return Unmanaged.passUnretained(event)
             }
 
-            let interceptor = Unmanaged<EventTapHotKeyInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-            return interceptor.handleEvent(type: type, event: event)
+            let tap = Unmanaged<SharedCommandHotKeyEventTap>.fromOpaque(userInfo).takeUnretainedValue()
+            return tap.handleEvent(type: type, event: event)
         }
 
-        guard let eventTap = CGEvent.tapCreate(
+        guard let createdTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
@@ -196,17 +231,16 @@ private final class EventTapHotKeyInterceptor {
             return AXIsProcessTrusted() ? .failed(OSStatus(-1)) : .requiresAccessibilityPermission
         }
 
-        let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: eventTap, enable: true)
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, createdTap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: createdTap, enable: true)
 
-        self.eventTap = eventTap
-        self.runLoopSource = runLoopSource
-
-        return .started
+        eventTap = createdTap
+        runLoopSource = source
+        return nil
     }
 
-    func stop() {
+    private func stopTapLocked() {
         if let eventTap {
             CFMachPortInvalidate(eventTap)
             self.eventTap = nil
@@ -220,8 +254,11 @@ private final class EventTapHotKeyInterceptor {
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
+            lock.lock()
+            let tap = eventTap
+            lock.unlock()
+            if let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
             }
             return Unmanaged.passUnretained(event)
         }
@@ -230,18 +267,31 @@ private final class EventTapHotKeyInterceptor {
             return Unmanaged.passUnretained(event)
         }
 
-        let pressedKeyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-        let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) == 1
-        let normalizedFlags = event.flags.intersection(relevantFlags)
-
-        guard !isAutoRepeat,
-              pressedKeyCode == keyCode,
-              normalizedFlags == modifiers.cgEventFlags else {
+        // Fast-path: all bindings in this tap require Command, so skip ordinary typing immediately.
+        let flags = event.flags
+        guard flags.contains(.maskCommand) else {
             return Unmanaged.passUnretained(event)
         }
 
-        DispatchQueue.main.async { [handler] in
-            handler()
+        guard event.getIntegerValueField(.keyboardEventAutorepeat) != 1 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let pressedKeyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
+        let normalizedFlags = flags.intersection(relevantFlags)
+
+        lock.lock()
+        let matchedHandler = bindings.first {
+            $0.keyCode == pressedKeyCode && $0.cgEventFlags == normalizedFlags
+        }?.handler
+        lock.unlock()
+
+        guard let matchedHandler else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        DispatchQueue.main.async {
+            matchedHandler()
         }
         return nil
     }
