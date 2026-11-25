@@ -118,17 +118,19 @@ final class CaptureCoordinator {
     private var frozenScreenImages: [CGDirectDisplayID: CGImage] = [:]
     private var activeCaptureTimingMode: CaptureTimingMode?
     private let captureLogger = Logger(subsystem: "com.wuqicheng.snapboard", category: "CaptureTiming")
+    private let usesDefaultCapturer: Bool
     private let captureDisplayImage: (CGDirectDisplayID) -> CGImage?
     private let captureBelowWindow: (CGDirectDisplayID, CGWindowID) -> CGImage?
 
     init(
-        captureDisplayImage: @escaping (CGDirectDisplayID) -> CGImage? = { CGDisplayCreateImage($0) },
-        captureBelowWindow: @escaping (CGDirectDisplayID, CGWindowID) -> CGImage? = { displayID, windowID in
+        captureDisplayImage: ((CGDirectDisplayID) -> CGImage?)? = nil,
+        captureBelowWindow: ((CGDirectDisplayID, CGWindowID) -> CGImage?)? = nil
+    ) {
+        self.usesDefaultCapturer = (captureDisplayImage == nil && captureBelowWindow == nil)
+        self.captureDisplayImage = captureDisplayImage ?? { CGDisplayCreateImage($0) }
+        self.captureBelowWindow = captureBelowWindow ?? { displayID, windowID in
             CGWindowListCreateImage(CGDisplayBounds(displayID), .optionOnScreenBelowWindow, windowID, .bestResolution)
         }
-    ) {
-        self.captureDisplayImage = captureDisplayImage
-        self.captureBelowWindow = captureBelowWindow
     }
 
     func prepareCapture(displayIDs: [CGDirectDisplayID]) -> Bool {
@@ -142,9 +144,32 @@ final class CaptureCoordinator {
 
     func freezeDisplays(_ displayIDs: [CGDirectDisplayID], belowWindows: [CGDirectDisplayID: CGWindowID] = [:]) -> Bool {
         guard !displayIDs.isEmpty else { return false }
+        guard displayIDs.allSatisfy({ $0 != 0 }) else { return false }
+
+        if usesDefaultCapturer, displayIDs.count > 1 {
+            let collector = LockedImageCollector()
+            let belowMap = belowWindows
+            DispatchQueue.concurrentPerform(iterations: displayIDs.count) { index in
+                let displayID = displayIDs[index]
+                let image: CGImage?
+                if let windowID = belowMap[displayID] {
+                    image = CGWindowListCreateImage(CGDisplayBounds(displayID), .optionOnScreenBelowWindow, windowID, .bestResolution)
+                } else {
+                    image = CGDisplayCreateImage(displayID)
+                }
+                if let image {
+                    collector.store(image, for: displayID)
+                }
+            }
+            let images = collector.snapshot()
+            guard displayIDs.allSatisfy({ images[$0] != nil }) else { return false }
+            frozenScreenImages = images
+            return true
+        }
+
         var images: [CGDirectDisplayID: CGImage] = [:]
+        images.reserveCapacity(displayIDs.count)
         for displayID in displayIDs {
-            guard displayID != 0 else { return false }
             let image: CGImage?
             if let windowID = belowWindows[displayID] {
                 // Keep the overlay on screen; composite only the windows beneath it.
@@ -226,11 +251,21 @@ final class CaptureCoordinator {
     private func beginSelectionMode(for mode: CaptureSelectionMode) {
         guard overlayWindowControllers.isEmpty else { return }
 
-        // Freeze pixels and window geometry before any overlay takes focus.
+        // Freeze pixels and window geometry concurrently before any overlay takes focus.
         let screens = NSScreen.screens
-        let frozenWindowInfo = captureTimingMode == .freezeFirst
-            ? (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
-            : nil
+        let desktopTopEdge = screens.first?.frame.maxY
+        let mouseLocation = NSEvent.mouseLocation
+
+        let windowInfoGroup = DispatchGroup()
+        let windowInfoBox = ConcurrentTransferBox<[[String: Any]]?>(nil)
+        if captureTimingMode == .freezeFirst {
+            windowInfoGroup.enter()
+            DispatchQueue.global(qos: .userInteractive).async {
+                windowInfoBox.value = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+                windowInfoGroup.leave()
+            }
+        }
+
         guard prepareCapture(displayIDs: screens.map(\.displayID)) else {
             cancelSelectionMode()
             let alert = NSAlert()
@@ -240,15 +275,21 @@ final class CaptureCoordinator {
             alert.runModal()
             return
         }
-        if activeCaptureTimingMode == .freezeFirst {
-            captureSound?.play()
-        } else {
-            selectCaptureSound?.play()
-        }
+
+        windowInfoGroup.wait()
+        let frozenWindowInfo = windowInfoBox.value
 
         pushCrosshairCursor()
 
-        overlayWindowControllers = screens.compactMap { screen in
+        // Present the screen containing the pointer first so the user sees the overlay immediately.
+        let targetScreen = screens.first { $0.frame.contains(mouseLocation) } ?? screens.first
+        let orderedScreens = screens.sorted { lhs, rhs in
+            (lhs === targetScreen) && (rhs !== targetScreen)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        overlayWindowControllers = orderedScreens.map { screen in
             let displayID = screen.displayID
             let frozenImage = frozenScreenImages[displayID]
 
@@ -258,6 +299,7 @@ final class CaptureCoordinator {
                 hotKeyHint: hotKeyHint,
                 frozenImage: frozenImage,
                 frozenWindowInfo: frozenWindowInfo,
+                desktopTopEdge: desktopTopEdge,
                 isEdgeSnappingEnabled: isEdgeSnappingEnabled,
                 edgeSnappingRange: edgeSnappingRange,
                 captureHandler: { [weak self] request in
@@ -267,15 +309,21 @@ final class CaptureCoordinator {
                     self?.cancelSelectionMode()
                 }
             )
-            controller.showWindow(nil)
-            controller.window?.orderFrontRegardless()
+            if screen === targetScreen {
+                controller.window?.makeKeyAndOrderFront(nil)
+            } else {
+                controller.window?.orderFrontRegardless()
+            }
             return controller
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        let targetOverlay = overlayWindowControllers.first { $0.screen.frame.contains(NSEvent.mouseLocation) }
-            ?? overlayWindowControllers.first
-        targetOverlay?.window?.makeKeyAndOrderFront(nil)
+        // Play audio after the overlay windows are committed so audio wakeup never delays display.
+        let isFreezeFirst = activeCaptureTimingMode == .freezeFirst
+        Task { @MainActor [weak self] in
+            let sound = isFreezeFirst ? self?.captureSound : self?.selectCaptureSound
+            sound?.stop()
+            sound?.play()
+        }
     }
 
     func cancelSelectionMode() {
@@ -629,5 +677,27 @@ enum ScreenshotCapturer {
             if let image = cropFrozenArea(selection: screenSelection, frozenImages: frozenImages) { return image }
         }
         return nil
+    }
+}
+
+private final class ConcurrentTransferBox<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
+}
+
+private final class LockedImageCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var images: [CGDirectDisplayID: CGImage] = [:]
+
+    func store(_ image: CGImage, for displayID: CGDirectDisplayID) {
+        lock.lock()
+        images[displayID] = image
+        lock.unlock()
+    }
+
+    func snapshot() -> [CGDirectDisplayID: CGImage] {
+        lock.lock()
+        defer { lock.unlock() }
+        return images
     }
 }

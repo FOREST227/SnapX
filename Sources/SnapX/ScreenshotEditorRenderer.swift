@@ -2,6 +2,8 @@ import AppKit
 import CoreGraphics
 @preconcurrency import CoreImage
 @preconcurrency import CoreImage.CIFilterBuiltins
+import ImageIO
+import UniformTypeIdentifiers
 
 enum ScreenshotEditorRenderer {
     private static let ciContext = CIContext()
@@ -263,6 +265,16 @@ extension NSImage {
     }
 
     var pngRepresentation: Data? {
+        if let cgImage = cgImageRepresentation {
+            let data = NSMutableData()
+            if let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, cgImage, nil)
+                if CGImageDestinationFinalize(destination) {
+                    return data as Data
+                }
+            }
+        }
+
         guard let tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffRepresentation) else {
             return nil

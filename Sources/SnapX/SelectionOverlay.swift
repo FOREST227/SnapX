@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
+import QuartzCore
 
 @MainActor
 final class SelectionOverlayWindowController: NSWindowController {
@@ -12,6 +13,7 @@ final class SelectionOverlayWindowController: NSWindowController {
         hotKeyHint: String,
         frozenImage: CGImage?,
         frozenWindowInfo: [[String: Any]]?,
+        desktopTopEdge: CGFloat? = nil,
         isEdgeSnappingEnabled: Bool = false,
         edgeSnappingRange: CGFloat = CGFloat(EdgeSnapRange.defaultValue),
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
@@ -19,6 +21,7 @@ final class SelectionOverlayWindowController: NSWindowController {
     ) {
         self.screen = screen
 
+        let hasFrozenBackdrop = frozenImage != nil
         let window = SelectionOverlayWindow(
             contentRect: screen.frame,
             styleMask: .borderless,
@@ -27,15 +30,15 @@ final class SelectionOverlayWindowController: NSWindowController {
             screen: screen
         )
 
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        window.backgroundColor = hasFrozenBackdrop ? .black : .clear
+        window.isOpaque = hasFrozenBackdrop
         window.hasShadow = false
         window.ignoresMouseEvents = false
         window.acceptsMouseMovedEvents = true
         window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.isReleasedWhenClosed = false
-        window.setFrame(screen.frame, display: true)
+        window.setFrame(screen.frame, display: false)
 
         let contentView = SelectionOverlayCanvasView(
             frame: CGRect(origin: .zero, size: screen.frame.size),
@@ -44,16 +47,13 @@ final class SelectionOverlayWindowController: NSWindowController {
             hotKeyHint: hotKeyHint,
             frozenImage: frozenImage,
             frozenWindowInfo: frozenWindowInfo,
+            desktopTopEdge: desktopTopEdge,
             isEdgeSnappingEnabled: isEdgeSnappingEnabled,
             edgeSnappingRange: edgeSnappingRange,
             captureHandler: captureHandler,
             cancelHandler: cancelHandler
         )
         window.contentView = contentView
-
-        if frozenImage != nil {
-            contentView.display()
-        }
 
         super.init(window: window)
     }
@@ -64,6 +64,8 @@ final class SelectionOverlayWindowController: NSWindowController {
     }
 
     func freeze(_ image: CGImage) {
+        window?.isOpaque = true
+        window?.backgroundColor = .black
         (window?.contentView as? SelectionOverlayCanvasView)?.freeze(image)
     }
 
@@ -72,7 +74,7 @@ final class SelectionOverlayWindowController: NSWindowController {
     }
 
     override func close() {
-        (window?.contentView as? SelectionOverlayCanvasView)?.stopEdgeAnalysis()
+        (window?.contentView as? SelectionOverlayCanvasView)?.tearDown()
         super.close()
     }
 
@@ -96,10 +98,161 @@ private struct HighlightedCaptureTarget: Equatable {
     let captureRequest: ScreenshotCaptureRequest
 }
 
+private final class PassthroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class PassthroughChromeView: NSView {
+    let chromeRootLayer = CALayer()
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        chromeRootLayer.isGeometryFlipped = true
+        chromeRootLayer.frame = CGRect(origin: .zero, size: frameRect.size)
+        layer = chromeRootLayer
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chromeRootLayer.frame = CGRect(origin: .zero, size: newSize)
+        CATransaction.commit()
+    }
+}
+
+private final class FloatingPillLabelView: NSView {
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private let textField: NSTextField
+    private let padding = CGSize(width: 12, height: 8)
+    private var lastText: String?
+    private var cachedContentSize: CGSize = .zero
+
+    override init(frame frameRect: NSRect) {
+        let field = NSTextField(labelWithString: "")
+        field.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
+        field.textColor = .white
+        field.lineBreakMode = .byClipping
+        field.maximumNumberOfLines = 1
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.isEditable = false
+        field.isSelectable = false
+        self.textField = field
+
+        super.init(frame: frameRect)
+        wantsLayer = true
+        needsDisplay = true
+        addSubview(field)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateLayer() {
+        layer?.cornerRadius = 10
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+    }
+
+    func update(text: String, near rect: CGRect, in containerBounds: CGRect) {
+        if lastText != text {
+            lastText = text
+            textField.stringValue = text
+            textField.sizeToFit()
+            cachedContentSize = textField.frame.size
+            textField.frame = CGRect(
+                x: padding.width,
+                y: padding.height,
+                width: cachedContentSize.width,
+                height: cachedContentSize.height
+            )
+        }
+
+        let width = cachedContentSize.width + padding.width * 2
+        let height = cachedContentSize.height + padding.height * 2
+        let nextFrame = CGRect(
+            x: min(max(rect.minX, 14), max(containerBounds.width - width - 14, 14)),
+            y: max(rect.minY - height - 10, 14),
+            width: width,
+            height: height
+        )
+        if frame != nextFrame {
+            frame = nextFrame
+        }
+        if isHidden {
+            isHidden = false
+        }
+    }
+}
+
+private final class OverlayInstructionView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private let titleField: NSTextField
+    private let captionField: NSTextField
+
+    init(title: String, caption: String) {
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = NSFont.systemFont(ofSize: 30, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.alignment = .center
+        titleLabel.sizeToFit()
+
+        let captionLabel = NSTextField(labelWithString: caption)
+        captionLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        captionLabel.textColor = NSColor.white.withAlphaComponent(0.78)
+        captionLabel.alignment = .center
+        captionLabel.sizeToFit()
+
+        self.titleField = titleLabel
+        self.captionField = captionLabel
+
+        let width = max(titleLabel.frame.width, captionLabel.frame.width)
+        let height = titleLabel.frame.height + 12 + captionLabel.frame.height
+        super.init(frame: CGRect(x: 0, y: 0, width: width, height: height))
+
+        titleLabel.frame.origin = CGPoint(x: (width - titleLabel.frame.width) / 2, y: 0)
+        captionLabel.frame.origin = CGPoint(x: (width - captionLabel.frame.width) / 2, y: titleLabel.frame.height + 12)
+        addSubview(titleLabel)
+        addSubview(captionLabel)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func center(in containerBounds: CGRect) {
+        let origin = CGPoint(
+            x: (containerBounds.width - frame.width) / 2,
+            y: (containerBounds.height - frame.height) / 2
+        )
+        if frame.origin != origin {
+            frame.origin = origin
+        }
+    }
+}
+
 final class SelectionOverlayCanvasView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private static var cachedDockDisplayName: String?
 
     private let dragActivationDistance: CGFloat = 4
     private let screen: NSScreen
@@ -112,22 +265,41 @@ final class SelectionOverlayCanvasView: NSView {
     private var pointerPoint: CGPoint?
     private var startingAnchor: SnapAnchor?
     private var confirmedSnapResult: EdgeSnapResult?
-    private let dockDisplayName: String
+    private var lastRenderedAnchorPreview: CGPoint?
     private var frozenImage: CGImage?
-    private let frozenWindowInfo: [[String: Any]]?
+    private var frozenWindowInfo: [[String: Any]]?
+    private let hasFrozenWindowSnapshot: Bool
     private let captureHandler: (ScreenshotCaptureRequest) -> Void
     private let cancelHandler: () -> Void
 
+    private let displayBounds: CGRect
+    private let currentProcessID = ProcessInfo.processInfo.processIdentifier
     private var trackingArea: NSTrackingArea?
     private var dragStartPoint: CGPoint?
     private var dragCurrentPoint: CGPoint?
     private var isAreaSelectionActive = false
     private var highlightedTarget: HighlightedCaptureTarget?
     private var isPointerInsideScreen = false
-    private var cachedWindowInfoList: [[String: Any]]?
+    private var preparedWindowTargets: [HighlightedCaptureTarget]?
     private var windowInfoCacheTime: CFTimeInterval = 0
     private let windowInfoCacheInterval: CFTimeInterval = 0.2
     private let desktopTopEdge: CGFloat
+
+    // GPU-composited subviews and zero-backing-store solid CALayers eliminate full-screen CPU redraws.
+    private let backdropView: PassthroughImageView
+    private let chromeView: PassthroughChromeView
+    private let dimTopLayer = CALayer()
+    private let dimBottomLayer = CALayer()
+    private let dimLeftLayer = CALayer()
+    private let dimRightLayer = CALayer()
+    private let outlineLayer = CALayer()
+    private let snappedEdgeLayers: [CALayer] = (0..<4).map { _ in CALayer() }
+    private let anchorHLineLayer = CALayer()
+    private let anchorVLineLayer = CALayer()
+    private let anchorDotLayer = CALayer()
+    private let floatingLabelView: FloatingPillLabelView
+    private var instructionView: OverlayInstructionView?
+
     init(
         frame frameRect: CGRect,
         screen: NSScreen,
@@ -135,6 +307,7 @@ final class SelectionOverlayCanvasView: NSView {
         hotKeyHint: String,
         frozenImage: CGImage?,
         frozenWindowInfo: [[String: Any]]?,
+        desktopTopEdge: CGFloat? = nil,
         isEdgeSnappingEnabled: Bool = false,
         edgeSnappingRange: CGFloat = CGFloat(EdgeSnapRange.defaultValue),
         captureHandler: @escaping (ScreenshotCaptureRequest) -> Void,
@@ -147,17 +320,46 @@ final class SelectionOverlayCanvasView: NSView {
         self.edgeSnappingRange = CGFloat(EdgeSnapRange.normalized(Double(edgeSnappingRange)))
         self.frozenImage = frozenImage
         self.frozenWindowInfo = frozenWindowInfo
-        dockDisplayName = Self.resolveDockDisplayName()
+        self.hasFrozenWindowSnapshot = frozenWindowInfo != nil
         self.captureHandler = captureHandler
         self.cancelHandler = cancelHandler
-        desktopTopEdge = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        self.displayBounds = CGDisplayBounds(screen.displayID)
+        self.desktopTopEdge = desktopTopEdge ?? NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+
+        let backdrop = PassthroughImageView(frame: CGRect(origin: .zero, size: frameRect.size))
+        backdrop.autoresizingMask = [.width, .height]
+        backdrop.imageScaling = .scaleAxesIndependently
+        backdrop.imageAlignment = .alignCenter
+        if let frozenImage {
+            backdrop.image = NSImage(cgImage: frozenImage, size: frameRect.size)
+            backdrop.isHidden = false
+        } else {
+            backdrop.isHidden = true
+        }
+        self.backdropView = backdrop
+
+        let chrome = PassthroughChromeView(frame: CGRect(origin: .zero, size: frameRect.size))
+        chrome.autoresizingMask = [.width, .height]
+        self.chromeView = chrome
+
+        let floatingLabel = FloatingPillLabelView(frame: .zero)
+        floatingLabel.isHidden = true
+        self.floatingLabelView = floatingLabel
+
         super.init(frame: frameRect)
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        configureChromeLayers()
+
+        addSubview(backdropView)
+        addSubview(chromeView)
+        addSubview(floatingLabelView)
+
         edgeAnalysis.onUpdate = { [weak self] in
             self?.updateStartingAnchor()
-            self?.needsDisplay = true
+            self?.updateChrome()
         }
+
+        updateChrome()
     }
 
     @available(*, unavailable)
@@ -165,13 +367,63 @@ final class SelectionOverlayCanvasView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func configureChromeLayers() {
+        let rootLayer = chromeView.chromeRootLayer
+
+        let dimColor = NSColor.black.withAlphaComponent(SelectionChromeStyle.dimOpacity).cgColor
+        for layer in [dimTopLayer, dimBottomLayer, dimLeftLayer, dimRightLayer] {
+            layer.backgroundColor = dimColor
+            layer.isHidden = true
+            rootLayer.addSublayer(layer)
+        }
+
+        outlineLayer.backgroundColor = nil
+        outlineLayer.isHidden = true
+        rootLayer.addSublayer(outlineLayer)
+
+        let snappedColor = SelectionChromeStyle.snappedEdgeNSColor.cgColor
+        for layer in snappedEdgeLayers {
+            layer.backgroundColor = snappedColor
+            layer.isHidden = true
+            rootLayer.addSublayer(layer)
+        }
+
+        for layer in [anchorHLineLayer, anchorVLineLayer, anchorDotLayer] {
+            layer.isHidden = true
+            rootLayer.addSublayer(layer)
+        }
+        anchorDotLayer.cornerRadius = 4
+        anchorDotLayer.borderWidth = 1
+        anchorDotLayer.borderColor = NSColor.white.cgColor
+    }
+
     func stopEdgeAnalysis() { edgeAnalysis.stop() }
+
+    func tearDown() {
+        edgeAnalysis.stop()
+        frozenImage = nil
+        frozenWindowInfo = nil
+        preparedWindowTargets = nil
+        backdropView.image = nil
+    }
 
     func freeze(_ image: CGImage) {
         edgeAnalysis.stop()
         frozenImage = image
-        needsDisplay = true
-        displayIfNeeded()
+        backdropView.image = NSImage(cgImage: image, size: bounds.size)
+        backdropView.isHidden = false
+        updateChrome()
+        CATransaction.flush()
+    }
+
+    override func layout() {
+        super.layout()
+        updateChrome()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateChrome()
     }
 
     override func viewDidMoveToWindow() {
@@ -216,13 +468,12 @@ final class SelectionOverlayCanvasView: NSView {
             startingAnchor = nil
             updateStartingAnchor()
             isAreaSelectionActive = false
-            updateHighlightedTarget(at: point)
+            updateHighlightedTarget(at: point, forceRedraw: true)
 
         case .display:
             isPointerInsideScreen = true
+            updateChrome()
         }
-
-        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -237,25 +488,25 @@ final class SelectionOverlayCanvasView: NSView {
            dragDistance(from: dragStartPoint, to: point) >= dragActivationDistance {
             isAreaSelectionActive = true
         }
-        needsDisplay = true
+        updateChrome()
     }
 
     override func mouseMoved(with event: NSEvent) {
-        bypassSnapping = event.modifierFlags.contains(.option)
+        let nextBypass = event.modifierFlags.contains(.option)
+        let bypassChanged = bypassSnapping != nextBypass
+        bypassSnapping = nextBypass
         let point = clampedPoint(for: event)
 
         switch mode {
         case .framed:
-            updateHighlightedTarget(at: point)
-            if !isPointerInsideScreen {
-                isPointerInsideScreen = true
-                needsDisplay = true
-            }
+            let entered = !isPointerInsideScreen
+            if entered { isPointerInsideScreen = true }
+            updateHighlightedTarget(at: point, forceRedraw: entered || bypassChanged)
 
         case .display:
             if !isPointerInsideScreen {
                 isPointerInsideScreen = true
-                needsDisplay = true
+                updateChrome()
             }
         }
     }
@@ -279,14 +530,15 @@ final class SelectionOverlayCanvasView: NSView {
                 isAreaSelectionActive = true
             }
 
-            let rect = areaSelectionRect
+            let resolvedSnap = snapResult
+            let rect = resolvedSnap?.rect
 
             defer {
                 dragStartPoint = nil
                 dragCurrentPoint = nil
                 isAreaSelectionActive = false
                 startingAnchor = nil
-                needsDisplay = true
+                updateChrome()
             }
 
             if shouldTreatAsAreaSelection {
@@ -295,7 +547,7 @@ final class SelectionOverlayCanvasView: NSView {
                     return
                 }
 
-                confirmAreaSelection(rect)
+                confirmAreaSelection(rect, edges: resolvedSnap?.edges ?? [])
                 return
             }
 
@@ -319,18 +571,20 @@ final class SelectionOverlayCanvasView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        bypassSnapping = event.modifierFlags.contains(.option)
-        needsDisplay = true
+        let nextBypass = event.modifierFlags.contains(.option)
+        guard nextBypass != bypassSnapping else { return }
+        bypassSnapping = nextBypass
+        updateChrome()
     }
 
     private func startLiveEdgeAnalysis() {
         guard let window else { return }
         let windowID = CGWindowID(window.windowNumber)
-        let displayBounds = CGDisplayBounds(screen.displayID)
+        let captureBounds = displayBounds
         // Read below our overlay, so selection borders and dimming never become snap candidates.
         // These analysis frames are separate from the final confirmation capture.
         edgeAnalysis.start(size: bounds.size, continuous: true) {
-            CGWindowListCreateImage(displayBounds, .optionOnScreenBelowWindow, windowID, .bestResolution)
+            CGWindowListCreateImage(captureBounds, .optionOnScreenBelowWindow, windowID, .bestResolution)
         }
     }
 
@@ -351,11 +605,11 @@ final class SelectionOverlayCanvasView: NSView {
         switch mode {
         case .framed:
             isPointerInsideScreen = true
-            updateHighlightedTarget(at: clampedPoint(for: event))
+            updateHighlightedTarget(at: clampedPoint(for: event), forceRedraw: true)
 
         case .display:
             isPointerInsideScreen = true
-            needsDisplay = true
+            updateChrome()
         }
     }
 
@@ -365,80 +619,248 @@ final class SelectionOverlayCanvasView: NSView {
             isPointerInsideScreen = false
             highlightedTarget = nil
             NSCursor.arrow.set()
-            needsDisplay = true
+            updateChrome()
 
         case .display:
             isPointerInsideScreen = false
-            needsDisplay = true
+            updateChrome()
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        if let frozenImage {
-            guard let context = NSGraphicsContext.current?.cgContext else { return }
-            context.saveGState()
-            // frozenImage uses top-left origin; flip to match flipped NSView
-            context.translateBy(x: 0, y: bounds.height)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(frozenImage, in: CGRect(origin: .zero, size: bounds.size))
-            context.restoreGState()
+    private func updateChrome() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        let activeSnapResult = mode == .framed ? snapResult : nil
+        let areaRect = activeSnapResult?.rect
+        let highlightRect = areaRect == nil ? highlightedTargetRect : nil
+
+        let cutoutRect: CGRect?
+        switch mode {
+        case .framed:
+            cutoutRect = areaRect ?? highlightRect
+        case .display:
+            cutoutRect = isPointerInsideScreen ? bounds : nil
+        }
+
+        updateDimLayers(cutoutRect: cutoutRect)
+
+        var frameAccentCGColor: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            frameAccentCGColor = SelectionChromeStyle.frameNSColor.cgColor
+        }
+        let accentCGColor = frameAccentCGColor ?? NSColor.systemBlue.cgColor
+
+        switch mode {
+        case .framed:
+            if let areaRect {
+                updateOutlineLayer(
+                    rect: areaRect,
+                    cornerRadius: SelectionChromeStyle.frameCornerRadius,
+                    lineWidth: SelectionChromeStyle.frameLineWidth,
+                    color: accentCGColor
+                )
+                updateSnappedEdgeLayers(for: activeSnapResult)
+                floatingLabelView.update(
+                    text: "\(Int(areaRect.width)) × \(Int(areaRect.height))" + snappingHint(for: activeSnapResult),
+                    near: areaRect,
+                    in: bounds
+                )
+                setInstructionVisible(false)
+            } else if let highlightRect, let highlightedTarget {
+                updateOutlineLayer(
+                    rect: highlightRect,
+                    cornerRadius: 10,
+                    lineWidth: 2,
+                    color: NSColor.white.withAlphaComponent(0.92).cgColor
+                )
+                hideSnappedEdgeLayers()
+                floatingLabelView.update(
+                    text: "\(highlightedTarget.displayName) • \(Int(highlightedTarget.contentSize.width)) × \(Int(highlightedTarget.contentSize.height))",
+                    near: highlightRect,
+                    in: bounds
+                )
+                setInstructionVisible(false)
+            } else {
+                outlineLayer.isHidden = true
+                hideSnappedEdgeLayers()
+                floatingLabelView.isHidden = true
+                setInstructionVisible(true)
+            }
+
+        case .display:
+            hideSnappedEdgeLayers()
+            if isPointerInsideScreen {
+                let displayHighlightRect = bounds.insetBy(dx: 8, dy: 8)
+                updateOutlineLayer(
+                    rect: displayHighlightRect,
+                    cornerRadius: 10,
+                    lineWidth: 2,
+                    color: NSColor.white.withAlphaComponent(0.92).cgColor
+                )
+                floatingLabelView.update(
+                    text: "整个屏幕 • \(Int(bounds.width)) × \(Int(bounds.height))",
+                    near: displayHighlightRect,
+                    in: bounds
+                )
+                setInstructionVisible(false)
+            } else {
+                outlineLayer.isHidden = true
+                floatingLabelView.isHidden = true
+                setInstructionVisible(true)
+            }
+        }
+
+        if mode == .framed {
+            updateAnchorPreviewLayers(using: activeSnapResult, accentColor: accentCGColor)
         } else {
-            NSColor.clear.setFill()
-            dirtyRect.fill()
+            hideAnchorPreviewLayers()
+        }
+    }
+
+    private func updateDimLayers(cutoutRect: CGRect?) {
+        let width = bounds.width
+        let height = bounds.height
+
+        guard let cutoutRect else {
+            dimTopLayer.frame = bounds
+            dimTopLayer.isHidden = false
+            dimBottomLayer.isHidden = true
+            dimLeftLayer.isHidden = true
+            dimRightLayer.isHidden = true
+            return
         }
 
-        let overlayPath = NSBezierPath(rect: bounds)
-
-        switch mode {
-        case .framed:
-            if let areaSelectionRect {
-                overlayPath.appendRect(areaSelectionRect)
-            } else if let highlightedTargetRect {
-                overlayPath.appendRect(highlightedTargetRect)
-            }
-
-        case .display:
-            if isPointerInsideScreen {
-                overlayPath.appendRect(bounds)
-            }
+        let r = cutoutRect.intersection(bounds)
+        if r.isNull || r.isEmpty {
+            dimTopLayer.frame = bounds
+            dimTopLayer.isHidden = false
+            dimBottomLayer.isHidden = true
+            dimLeftLayer.isHidden = true
+            dimRightLayer.isHidden = true
+            return
         }
 
-        overlayPath.windingRule = .evenOdd
-        NSColor.black.withAlphaComponent(SelectionChromeStyle.dimOpacity).setFill()
-        overlayPath.fill()
+        let topHeight = r.minY
+        if topHeight > 0 {
+            dimTopLayer.frame = CGRect(x: 0, y: 0, width: width, height: topHeight)
+            dimTopLayer.isHidden = false
+        } else {
+            dimTopLayer.isHidden = true
+        }
 
-        switch mode {
-        case .framed:
-            if let areaSelectionRect {
-                drawAreaSelectionOutline(for: areaSelectionRect)
-                drawSnappedEdges()
-                drawFloatingLabel(
-                    "\(Int(areaSelectionRect.width)) × \(Int(areaSelectionRect.height))" + snappingHint,
-                    near: areaSelectionRect
-                )
-            } else if let highlightedTargetRect, let highlightedTarget {
-                drawHighlightOutline(for: highlightedTargetRect)
-                drawFloatingLabel(
-                    "\(highlightedTarget.displayName) • \(Int(highlightedTarget.contentSize.width)) × \(Int(highlightedTarget.contentSize.height))",
-                    near: highlightedTargetRect
-                )
+        let bottomHeight = height - r.maxY
+        if bottomHeight > 0 {
+            dimBottomLayer.frame = CGRect(x: 0, y: r.maxY, width: width, height: bottomHeight)
+            dimBottomLayer.isHidden = false
+        } else {
+            dimBottomLayer.isHidden = true
+        }
+
+        let leftWidth = r.minX
+        if leftWidth > 0 && r.height > 0 {
+            dimLeftLayer.frame = CGRect(x: 0, y: r.minY, width: leftWidth, height: r.height)
+            dimLeftLayer.isHidden = false
+        } else {
+            dimLeftLayer.isHidden = true
+        }
+
+        let rightWidth = width - r.maxX
+        if rightWidth > 0 && r.height > 0 {
+            dimRightLayer.frame = CGRect(x: r.maxX, y: r.minY, width: rightWidth, height: r.height)
+            dimRightLayer.isHidden = false
+        } else {
+            dimRightLayer.isHidden = true
+        }
+    }
+
+    private func updateOutlineLayer(rect: CGRect, cornerRadius: CGFloat, lineWidth: CGFloat, color: CGColor) {
+        let half = lineWidth / 2
+        outlineLayer.frame = rect.insetBy(dx: -half, dy: -half)
+        outlineLayer.borderWidth = lineWidth
+        outlineLayer.cornerRadius = cornerRadius + half
+        outlineLayer.borderColor = color
+        outlineLayer.isHidden = false
+    }
+
+    private func updateSnappedEdgeLayers(for result: EdgeSnapResult?) {
+        guard let result, !result.edges.isEmpty else {
+            hideSnappedEdgeLayers()
+            return
+        }
+
+        let thickness: CGFloat = 2
+        let half = thickness / 2
+        for (index, layer) in snappedEdgeLayers.enumerated() {
+            guard index < result.edges.count else {
+                layer.isHidden = true
+                continue
+            }
+            let edge = result.edges[index]
+            if edge.axis == .horizontal {
+                let y = abs(edge.position - result.rect.minY) < abs(edge.position - result.rect.maxY)
+                    ? result.rect.minY : result.rect.maxY
+                layer.frame = CGRect(x: result.rect.minX, y: y - half, width: result.rect.width, height: thickness)
             } else {
-                drawInstructionLabel()
+                let x = abs(edge.position - result.rect.minX) < abs(edge.position - result.rect.maxX)
+                    ? result.rect.minX : result.rect.maxX
+                layer.frame = CGRect(x: x - half, y: result.rect.minY, width: thickness, height: result.rect.height)
             }
-
-        case .display:
-            if isPointerInsideScreen {
-                let highlightRect = bounds.insetBy(dx: 8, dy: 8)
-                drawHighlightOutline(for: highlightRect)
-                drawFloatingLabel(
-                    "整个屏幕 • \(Int(bounds.width)) × \(Int(bounds.height))",
-                    near: highlightRect
-                )
-            } else {
-                drawInstructionLabel()
-            }
+            layer.isHidden = false
         }
-        if mode == .framed { drawAnchorPreview() }
+    }
+
+    private func hideSnappedEdgeLayers() {
+        for layer in snappedEdgeLayers where !layer.isHidden {
+            layer.isHidden = true
+        }
+    }
+
+    private func updateAnchorPreviewLayers(using activeSnapResult: EdgeSnapResult?, accentColor: CGColor) {
+        let point = confirmedSnapResult == nil ? resolveAnchorPreviewPoint(using: activeSnapResult) : nil
+        lastRenderedAnchorPreview = point
+
+        guard let point else {
+            hideAnchorPreviewLayers()
+            return
+        }
+
+        anchorHLineLayer.backgroundColor = accentColor
+        anchorVLineLayer.backgroundColor = accentColor
+        anchorDotLayer.backgroundColor = accentColor
+
+        anchorHLineLayer.frame = CGRect(x: point.x - 8, y: point.y - 0.5, width: 16, height: 1)
+        anchorVLineLayer.frame = CGRect(x: point.x - 0.5, y: point.y - 8, width: 1, height: 16)
+        anchorDotLayer.frame = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
+
+        anchorHLineLayer.isHidden = false
+        anchorVLineLayer.isHidden = false
+        anchorDotLayer.isHidden = false
+    }
+
+    private func hideAnchorPreviewLayers() {
+        lastRenderedAnchorPreview = nil
+        if !anchorHLineLayer.isHidden { anchorHLineLayer.isHidden = true }
+        if !anchorVLineLayer.isHidden { anchorVLineLayer.isHidden = true }
+        if !anchorDotLayer.isHidden { anchorDotLayer.isHidden = true }
+    }
+
+    private func setInstructionVisible(_ visible: Bool) {
+        if visible {
+            if instructionView == nil {
+                let view = OverlayInstructionView(
+                    title: mode.instructionTitle,
+                    caption: mode.instructionCaption(hotKeyHint: hotKeyHint)
+                )
+                addSubview(view)
+                instructionView = view
+            }
+            instructionView?.center(in: bounds)
+            instructionView?.isHidden = false
+        } else {
+            instructionView?.isHidden = true
+        }
     }
 
     private var rawAreaSelectionRect: CGRect? {
@@ -477,8 +899,12 @@ final class SelectionOverlayCanvasView: NSView {
     }
 
     var anchorPreviewPoint: CGPoint? {
+        resolveAnchorPreviewPoint(using: snapResult)
+    }
+
+    private func resolveAnchorPreviewPoint(using activeSnapResult: EdgeSnapResult?) -> CGPoint? {
         guard isEdgeSnappingEnabled, !bypassSnapping, isPointerInsideScreen else { return nil }
-        if let result = snapResult, result.roundedRegion != nil,
+        if let result = activeSnapResult, result.roundedRegion != nil,
            let start = dragStartPoint, let end = dragCurrentPoint {
             return CGPoint(x: end.x >= start.x ? result.rect.minX : result.rect.maxX,
                            y: end.y >= start.y ? result.rect.minY : result.rect.maxY)
@@ -489,54 +915,13 @@ final class SelectionOverlayCanvasView: NSView {
         return candidate.isSnapped ? candidate.previewPoint : nil
     }
 
-    private func drawAnchorPreview() {
-        guard let point = anchorPreviewPoint, confirmedSnapResult == nil else { return }
-        let circle = NSBezierPath(ovalIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8))
-        NSColor.controlAccentColor.setFill()
-        circle.fill()
-        NSColor.white.setStroke()
-        circle.lineWidth = 1
-        circle.stroke()
-        let cross = NSBezierPath()
-        cross.move(to: CGPoint(x: point.x - 8, y: point.y))
-        cross.line(to: CGPoint(x: point.x + 8, y: point.y))
-        cross.move(to: CGPoint(x: point.x, y: point.y - 8))
-        cross.line(to: CGPoint(x: point.x, y: point.y + 8))
-        NSColor.controlAccentColor.setStroke()
-        cross.lineWidth = 1
-        cross.stroke()
-    }
-
-    private var areaSelectionRect: CGRect? { snapResult?.rect }
-
-    private var snappingHint: String {
+    private func snappingHint(for activeSnapResult: EdgeSnapResult?) -> String {
         guard isEdgeSnappingEnabled else { return "" }
         if bypassSnapping { return " · 自由框选" }
         if edgeAnalysis.isAnalyzing { return " · 边缘识别中 · ⌥ 自由框选" }
         if edgeAnalysis.map == nil { return " · 暂无可用边缘 · 自由框选" }
-        if snapResult?.roundedRegion != nil { return " · 圆角贴合 · ⌥ 自由框选" }
-        return (snapResult?.edges.isEmpty == false ? " · 已吸附" : " · 吸附实验") + " · ⌥ 自由框选"
-    }
-
-    private func drawSnappedEdges() {
-        guard let result = snapResult else { return }
-        SelectionChromeStyle.snappedEdgeNSColor.setStroke()
-        for edge in result.edges {
-            let path = NSBezierPath()
-            if edge.axis == .horizontal {
-                let y = abs(edge.position - result.rect.minY) < abs(edge.position - result.rect.maxY)
-                    ? result.rect.minY : result.rect.maxY
-                path.move(to: CGPoint(x: result.rect.minX, y: y))
-                path.line(to: CGPoint(x: result.rect.maxX, y: y))
-            } else {
-                let x = abs(edge.position - result.rect.minX) < abs(edge.position - result.rect.maxX)
-                    ? result.rect.minX : result.rect.maxX
-                path.move(to: CGPoint(x: x, y: result.rect.minY))
-                path.line(to: CGPoint(x: x, y: result.rect.maxY))
-            }
-            path.lineWidth = 2
-            path.stroke()
-        }
+        if activeSnapResult?.roundedRegion != nil { return " · 圆角贴合 · ⌥ 自由框选" }
+        return (activeSnapResult?.edges.isEmpty == false ? " · 已吸附" : " · 吸附实验") + " · ⌥ 自由框选"
     }
 
     private var highlightedTargetRect: CGRect? {
@@ -556,124 +941,58 @@ final class SelectionOverlayCanvasView: NSView {
         )
     }
 
-    private func drawInstructionLabel() {
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 30, weight: .semibold),
-            .foregroundColor: NSColor.white,
-        ]
-
-        let captionAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-            .foregroundColor: NSColor.white.withAlphaComponent(0.78),
-        ]
-
-        let title = mode.instructionTitle as NSString
-        let caption = mode.instructionCaption(hotKeyHint: hotKeyHint) as NSString
-
-        let titleSize = title.size(withAttributes: titleAttributes)
-        let captionSize = caption.size(withAttributes: captionAttributes)
-        let totalHeight = titleSize.height + captionSize.height + 12
-        let startY = (bounds.height - totalHeight) / 2
-
-        title.draw(
-            at: CGPoint(x: (bounds.width - titleSize.width) / 2, y: startY),
-            withAttributes: titleAttributes
-        )
-        caption.draw(
-            at: CGPoint(x: (bounds.width - captionSize.width) / 2, y: startY + titleSize.height + 12),
-            withAttributes: captionAttributes
-        )
-    }
-
-    private func drawHighlightOutline(for rect: CGRect) {
-        let highlightPath = NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10)
-        NSColor.white.withAlphaComponent(0.92).setStroke()
-        highlightPath.lineWidth = 2
-        highlightPath.stroke()
-    }
-
-    // Area selections are rectangular captures, so their chrome matches the
-    // editor's selection frame exactly (color, width, corner radius).
-    private func drawAreaSelectionOutline(for rect: CGRect) {
-        let radius = SelectionChromeStyle.frameCornerRadius
-        let framePath = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        SelectionChromeStyle.frameNSColor.setStroke()
-        framePath.lineWidth = SelectionChromeStyle.frameLineWidth
-        framePath.stroke()
-    }
-
-    private func drawFloatingLabel(_ text: String, near rect: CGRect) {
-        let label = text as NSString
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
-            .foregroundColor: NSColor.white,
-        ]
-
-        let size = label.size(withAttributes: attributes)
-        let padding = CGSize(width: 12, height: 8)
-        let backgroundRect = CGRect(
-            x: min(max(rect.minX, 14), max(bounds.width - size.width - padding.width * 2 - 14, 14)),
-            y: max(rect.minY - size.height - padding.height * 2 - 10, 14),
-            width: size.width + padding.width * 2,
-            height: size.height + padding.height * 2
-        )
-
-        let chip = NSBezierPath(roundedRect: backgroundRect, xRadius: 10, yRadius: 10)
-        NSColor.black.withAlphaComponent(0.72).setFill()
-        chip.fill()
-
-        label.draw(
-            at: CGPoint(
-                x: backgroundRect.minX + padding.width,
-                y: backgroundRect.minY + padding.height
-            ),
-            withAttributes: attributes
-        )
-    }
-
     private func refreshHoverState() {
         let mouseLocation = NSEvent.mouseLocation
         let isInsideCurrentScreen = screen.frame.contains(mouseLocation)
 
         switch mode {
         case .framed:
+            let wasInside = isPointerInsideScreen
             isPointerInsideScreen = isInsideCurrentScreen
             if isInsideCurrentScreen {
-                updateHighlightedTarget(at: localPoint(fromGlobalCocoaPoint: mouseLocation))
-            } else if highlightedTarget != nil {
+                updateHighlightedTarget(at: localPoint(fromGlobalCocoaPoint: mouseLocation), forceRedraw: !wasInside)
+            } else if highlightedTarget != nil || wasInside {
                 highlightedTarget = nil
-                needsDisplay = true
+                updateChrome()
             }
 
         case .display:
             if isPointerInsideScreen != isInsideCurrentScreen {
                 isPointerInsideScreen = isInsideCurrentScreen
-                needsDisplay = true
+                updateChrome()
             }
         }
     }
 
-    private func updateHighlightedTarget(at point: CGPoint) {
+    private func updateHighlightedTarget(at point: CGPoint, forceRedraw: Bool = false) {
         pointerPoint = point
-        if isEdgeSnappingEnabled { needsDisplay = true }
         let nextTarget = captureTarget(at: point)
-        guard nextTarget != highlightedTarget else { return }
+        let targetChanged = nextTarget != highlightedTarget
+        if targetChanged {
+            highlightedTarget = nextTarget
+        }
 
-        highlightedTarget = nextTarget
-        needsDisplay = true
+        if forceRedraw || targetChanged {
+            updateChrome()
+        } else if isEdgeSnappingEnabled, edgeAnalysis.map != nil {
+            let nextPreview = resolveAnchorPreviewPoint(using: nil)
+            if nextPreview != lastRenderedAnchorPreview {
+                updateChrome()
+            }
+        }
     }
 
     private func dragDistance(from start: CGPoint, to end: CGPoint) -> CGFloat {
         hypot(end.x - start.x, end.y - start.y)
     }
 
-    private func confirmAreaSelection(_ rect: CGRect) {
+    private func confirmAreaSelection(_ rect: CGRect, edges: [SnapEdge]) {
         guard let displaySelection = makeScreenSelection(with: rect) else {
             cancelHandler()
             return
         }
 
-        confirmedSnapResult = EdgeSnapResult(rect: rect, edges: snapResult?.edges ?? [])
+        confirmedSnapResult = EdgeSnapResult(rect: rect, edges: edges)
         captureHandler(.area(displaySelection))
     }
 
@@ -682,40 +1001,59 @@ final class SelectionOverlayCanvasView: NSView {
             return systemSurfaceTarget
         }
 
-        let now = CACurrentMediaTime()
-        if let frozenWindowInfo {
+        let targets = resolvedWindowTargets()
+        for target in targets where target.highlightRect.contains(point) {
+            return target
+        }
+
+        return nil
+    }
+
+    private func resolvedWindowTargets() -> [HighlightedCaptureTarget] {
+        if hasFrozenWindowSnapshot {
+            if let preparedWindowTargets {
+                return preparedWindowTargets
+            }
             // Even an empty snapshot must stay empty: never select a newly appeared live window.
-            cachedWindowInfoList = frozenWindowInfo
-        } else if cachedWindowInfoList == nil || (now - windowInfoCacheTime) >= windowInfoCacheInterval {
-            let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-            cachedWindowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
-            windowInfoCacheTime = now
+            let built = buildWindowTargets(from: frozenWindowInfo ?? [])
+            preparedWindowTargets = built
+            frozenWindowInfo = nil
+            return built
         }
 
-        guard let windowInfoList = cachedWindowInfoList else {
-            return nil
+        let now = CACurrentMediaTime()
+        if let preparedWindowTargets, (now - windowInfoCacheTime) < windowInfoCacheInterval {
+            return preparedWindowTargets
         }
 
-        let currentProcessID = ProcessInfo.processInfo.processIdentifier
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let list = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]) ?? []
+        let built = buildWindowTargets(from: list)
+        preparedWindowTargets = built
+        windowInfoCacheTime = now
+        return built
+    }
+
+    private func buildWindowTargets(from windowInfoList: [[String: Any]]) -> [HighlightedCaptureTarget] {
+        var targets: [HighlightedCaptureTarget] = []
+        targets.reserveCapacity(min(windowInfoList.count, 32))
 
         for windowInfo in windowInfoList {
             guard let selection = WindowCaptureSelection(windowInfo: windowInfo, excludingProcessID: currentProcessID)?
-                .clipped(to: CGDisplayBounds(screen.displayID)) else {
+                .clipped(to: displayBounds) else {
                 continue
             }
 
             let localRect = localRect(fromGlobalScreenRect: selection.bounds)
-            if localRect.contains(point) {
-                return HighlightedCaptureTarget(
-                    highlightRect: localRect.integral,
-                    contentSize: selection.bounds.size,
-                    displayName: selection.displayName,
-                    captureRequest: .window(selection)
-                )
-            }
+            targets.append(HighlightedCaptureTarget(
+                highlightRect: localRect.integral,
+                contentSize: selection.bounds.size,
+                displayName: selection.displayName,
+                captureRequest: .window(selection)
+            ))
         }
 
-        return nil
+        return targets
     }
 
     private func makeScreenSelection(with rect: CGRect) -> ScreenSelection? {
@@ -752,7 +1090,7 @@ final class SelectionOverlayCanvasView: NSView {
             return HighlightedCaptureTarget(
                 highlightRect: dockRect.integral,
                 contentSize: dockRect.size,
-                displayName: dockDisplayName,
+                displayName: Self.resolveDockDisplayName(),
                 captureRequest: .area(selection)
             )
         }
@@ -812,6 +1150,10 @@ final class SelectionOverlayCanvasView: NSView {
     }
 
     private static func resolveDockDisplayName() -> String {
+        if let cachedDockDisplayName {
+            return cachedDockDisplayName
+        }
+
         let options: CGWindowListOption = [.optionOnScreenOnly]
         guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return "Dock"
@@ -821,10 +1163,12 @@ final class SelectionOverlayCanvasView: NSView {
             let ownerName = (windowInfo[kCGWindowOwnerName as String] as? String) ?? ""
             let windowName = (windowInfo[kCGWindowName as String] as? String) ?? ""
             if windowName == "Dock", !ownerName.isEmpty {
+                cachedDockDisplayName = ownerName
                 return ownerName
             }
         }
 
+        cachedDockDisplayName = "Dock"
         return "Dock"
     }
 

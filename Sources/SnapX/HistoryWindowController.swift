@@ -99,7 +99,7 @@ struct HistoryView: View {
                             ForEach(history.items) { item in
                                 Button { model.select(item, items: history.items) } label: {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Image(nsImage: item.image).resizable().aspectRatio(contentMode: .fit)
+                                        Image(nsImage: item.thumbnail).resizable().aspectRatio(contentMode: .fit)
                                             .frame(maxWidth: .infinity).frame(height: 94)
                                             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
                                         HStack {
@@ -161,7 +161,7 @@ struct HistoryDetailView: View {
                         Text(isBatch ? "已选择 \(selected.count) 张截图" : item.date.formatted(date: .abbreviated, time: .standard))
                             .font(.system(size: 12, weight: .medium)).lineLimit(1)
                         Spacer(minLength: 4)
-                        Text(pixelDescription(item.image)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(pixelDescription(item)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     HStack(spacing: 10) {
                         Button { copy() } label: { Label(isBatch ? "复制所选" : "复制", systemImage: "doc.on.doc") }
@@ -252,8 +252,11 @@ struct HistoryDetailView: View {
             notice = "已保存到下载：\(url.lastPathComponent)"
         } catch { notice = "保存失败：\(error.localizedDescription)" }
     }
-    private func pixelDescription(_ image: NSImage) -> String {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return "" }
+    private func pixelDescription(_ item: HistoryItem) -> String {
+        if let size = item.pixelSize {
+            return "\(Int(size.width)) × \(Int(size.height)) px"
+        }
+        guard let cg = item.image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return "" }
         return "\(cg.width) × \(cg.height) px"
     }
 }

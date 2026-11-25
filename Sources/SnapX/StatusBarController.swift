@@ -30,6 +30,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     func closePopover() {
+        guard popover.isShown else { return }
         popover.performClose(nil)
     }
 
@@ -88,13 +89,17 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func configurePopover() {
-        let hostingController = NSHostingController(rootView: MenuBarContentView(appState: appState, animatesEntrance: true))
-        popover.contentViewController = hostingController
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         popover.contentSize = CGSize(width: AppPanelStyle.width, height: 430)
         applyPopoverTheme()
+    }
+
+    private func ensurePopoverContentViewController() {
+        guard popover.contentViewController == nil else { return }
+        let hostingController = NSHostingController(rootView: MenuBarContentView(appState: appState, animatesEntrance: true))
+        popover.contentViewController = hostingController
     }
 
     @objc private func applyPopoverTheme() {
@@ -105,6 +110,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func showPopover() {
         guard let button = statusItem.button else { return }
 
+        ensurePopoverContentViewController()
         appState.refreshPermissionStates()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         applyPopoverTheme()
