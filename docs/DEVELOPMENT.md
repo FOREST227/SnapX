@@ -20,7 +20,7 @@ swift build
 # 首次创建或复用本机代码签名证书
 bash Scripts/setup_local_signing.sh
 
-# 保存截图并退出 SnapX 后，构建、备份旧版、安装并启动
+# 构建、自动关闭旧版 SnapX、备份旧版、替换安装并重新启动
 bash Scripts/install_local.sh
 ```
 
